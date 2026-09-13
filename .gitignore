@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.dump
+*.pem
+*.key
+*.log
+coverage/
+backend/generated/
+playwright-report/
+__pycache__/
+*.pyc
+*.tsbuildinfo

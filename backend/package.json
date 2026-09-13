@@ -1,0 +1,6 @@
+{
+  "name":"@aethermind/backend","version":"0.1.0","private":true,"type":"module",
+  "scripts":{"build":"tsc -p tsconfig.json","start":"node dist/main.js","test":"node --import tsx --test test/*.test.ts","db:generate":"prisma generate","db:migrate":"prisma migrate deploy"},
+  "dependencies":{"@nestjs/common":"^11.1.6","@nestjs/core":"^11.1.6","@nestjs/platform-fastify":"^11.1.6","@prisma/adapter-pg":"7.10.0","@prisma/client":"7.10.0","pg":"^8.16.3","reflect-metadata":"^0.2.2","rxjs":"^7.8.2","dotenv":"^17.2.2"},
+  "devDependencies":{"@types/node":"^22.18.1","@types/pg":"^8.15.5","prisma":"7.10.0","tsx":"^4.20.5","typescript":"^5.9.2"}
+}

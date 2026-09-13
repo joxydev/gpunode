@@ -1,0 +1,21 @@
+CREATE SCHEMA IF NOT EXISTS "public";
+CREATE TABLE "User" ("id" TEXT NOT NULL,"name" TEXT NOT NULL,"username" TEXT,"referrerId" TEXT,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,CONSTRAINT "User_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "RentalRequest" ("id" TEXT NOT NULL,"userId" TEXT NOT NULL,"nodeId" TEXT NOT NULL,"profile" TEXT NOT NULL,"workload" TEXT NOT NULL,"status" TEXT NOT NULL DEFAULT 'REQUESTED',"idempotencyKey" TEXT NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL,CONSTRAINT "RentalRequest_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "Ticket" ("id" TEXT NOT NULL,"userId" TEXT NOT NULL,"message" TEXT NOT NULL,"reply" TEXT,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updatedAt" TIMESTAMP(3) NOT NULL,CONSTRAINT "Ticket_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "LedgerEntry" ("id" TEXT NOT NULL,"userId" TEXT NOT NULL,"amountMicros" BIGINT NOT NULL,"kind" TEXT NOT NULL,"sourceId" TEXT NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,CONSTRAINT "LedgerEntry_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "Audit" ("id" TEXT NOT NULL,"actorId" TEXT NOT NULL,"action" TEXT NOT NULL,"targetId" TEXT NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,CONSTRAINT "Audit_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "Invite" ("telegramId" TEXT NOT NULL,"referrerId" TEXT NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,CONSTRAINT "Invite_pkey" PRIMARY KEY ("telegramId"));
+CREATE TABLE "BotUpdate" ("id" BIGINT NOT NULL,"createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,CONSTRAINT "BotUpdate_pkey" PRIMARY KEY ("id"));
+CREATE INDEX "User_referrerId_idx" ON "User"("referrerId");
+CREATE INDEX "RentalRequest_userId_createdAt_idx" ON "RentalRequest"("userId","createdAt");
+CREATE UNIQUE INDEX "RentalRequest_userId_idempotencyKey_key" ON "RentalRequest"("userId","idempotencyKey");
+CREATE INDEX "Ticket_userId_createdAt_idx" ON "Ticket"("userId","createdAt");
+CREATE UNIQUE INDEX "LedgerEntry_sourceId_key" ON "LedgerEntry"("sourceId");
+CREATE INDEX "LedgerEntry_userId_createdAt_idx" ON "LedgerEntry"("userId","createdAt");
+ALTER TABLE "RentalRequest" ADD CONSTRAINT "RentalRequest_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "Ticket" ADD CONSTRAINT "Ticket_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "LedgerEntry" ADD CONSTRAINT "LedgerEntry_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+-- Immutable economic identity and constrained workflow states. No money-writing endpoint ships in v1.
+ALTER TABLE "RentalRequest" ADD CONSTRAINT "request_status" CHECK ("status" IN ('REQUESTED','REVIEWED','CLOSED'));
+ALTER TABLE "RentalRequest" ADD CONSTRAINT "request_profile" CHECK ("profile" IN ('ECO','BALANCED','PERFORMANCE'));
+ALTER TABLE "User" ADD CONSTRAINT "no_self_referral" CHECK ("referrerId" IS NULL OR "referrerId" <> "id");

@@ -1,0 +1,67 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+}
+model User {
+  id String @id
+  name String
+  username String?
+  referrerId String?
+  createdAt DateTime @default(now())
+  requests RentalRequest[]
+  tickets Ticket[]
+  entries LedgerEntry[]
+  @@index([referrerId])
+}
+model RentalRequest {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id])
+  nodeId String
+  profile String
+  workload String
+  status String @default("REQUESTED")
+  idempotencyKey String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+}
+model Ticket {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id])
+  message String
+  reply String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId, createdAt])
+}
+model LedgerEntry {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id])
+  amountMicros BigInt
+  kind String
+  sourceId String @unique
+  createdAt DateTime @default(now())
+  @@index([userId, createdAt])
+}
+model Audit {
+  id String @id @default(uuid())
+  actorId String
+  action String
+  targetId String
+  createdAt DateTime @default(now())
+}
+model Invite {
+  telegramId String @id
+  referrerId String
+  createdAt DateTime @default(now())
+}
+model BotUpdate {
+  id BigInt @id
+  createdAt DateTime @default(now())
+}

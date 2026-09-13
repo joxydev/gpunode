@@ -1,0 +1,38 @@
+name: Checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci_only_password
+          POSTGRES_DB: aethermind_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:ci_only_password@127.0.0.1:5432/aethermind_ci
+      BOT_TOKEN: 123456:TEST_TOKEN_NOT_A_REAL_CREDENTIAL
+      BOT_USERNAME: aethermind_ci_bot
+      OWNER_TELEGRAM_ID: '11111'
+      SESSION_SECRET: ci_only_secret_which_is_long_enough_for_validation_not_for_production
+      BOT_WEBHOOK_SECRET: ci_only_webhook_secret
+      PUBLIC_URL: https://example.invalid
+      CI_INTEGRATION: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run db:generate
+      - run: npm test
+      - run: npm run build
+      - run: npm run db:migrate
+      - run: node ops/integration.mjs
+      - run: bash -n ops/vps.sh
