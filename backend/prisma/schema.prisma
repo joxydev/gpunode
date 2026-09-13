@@ -13,6 +13,7 @@ model User {
   requests RentalRequest[]
   tickets Ticket[]
   entries LedgerEntry[]
+  leases UserLease[]
   @@index([referrerId])
 }
 model RentalRequest {
@@ -64,4 +65,45 @@ model Invite {
 model BotUpdate {
   id BigInt @id
   createdAt DateTime @default(now())
+}
+model GpuCatalog {
+  id String @id @db.VarChar(64)
+  name String @db.VarChar(255)
+  category String
+  tierLevel Int @map("tier_level")
+  chip String
+  precisionLabel String @map("precision_label")
+  workload String
+  priceUsdt Decimal @map("price_usdt") @db.Decimal(18, 2)
+  dailyYieldPercent Decimal @map("daily_yield_percent") @db.Decimal(5, 2)
+  tflopsPower Int @map("tflops_power")
+  totalSupply Int @default(0) @map("total_supply")
+  availableSupply Int @default(0) @map("available_supply")
+  supplyKnown Boolean @default(false) @map("supply_known")
+  contractDays Int @map("contract_days")
+  maxPerUser Int @map("max_per_user")
+  imageUrl String @map("image_url") @db.VarChar(512)
+  isActive Boolean @default(true) @map("is_active")
+  isExperimental Boolean @default(false) @map("is_experimental")
+  contractReference String? @map("contract_reference")
+  leases UserLease[]
+  @@map("gpu_catalog")
+}
+model UserLease {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id")
+  user User @relation(fields: [userId], references: [id])
+  nodeId String @map("node_id") @db.VarChar(64)
+  node GpuCatalog @relation(fields: [nodeId], references: [id])
+  purchasePrice Decimal @map("purchase_price") @db.Decimal(18, 2)
+  dailyYieldUsdt Decimal @map("daily_yield_usdt") @db.Decimal(18, 4)
+  contractReference String @map("contract_reference")
+  idempotencyKey String @map("idempotency_key") @db.Uuid
+  status String @default("PROVISIONING")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  lastYieldCalc DateTime @default(now()) @map("last_yield_calc") @db.Timestamptz(3)
+  @@unique([userId, idempotencyKey])
+  @@index([userId, nodeId, status])
+  @@map("user_leases")
 }

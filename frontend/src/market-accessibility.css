@@ -1,0 +1,12 @@
+/* Mobile labels remain legible; respect reduced motion for lift states too. */
+@media (max-width:600px){
+ .market-specs small{font-size:9px;line-height:1.5;min-height:27px}
+ .market-precision,.market-pool>small,.market-price div>span{font-size:10px}
+ .market-yield small{font-size:10px}
+ .market-yield>span small{font-size:8px}
+ .market-limit small{font-size:10px}
+ .market-status{font-size:11px}
+}
+@media (prefers-reduced-motion:reduce){
+ .market-card,.market-card:hover,.market-card:active,.market-card:focus-within{transform:none!important}
+}

@@ -6,6 +6,8 @@ import {PrismaClient} from '@prisma/client';
 import {PrismaPg} from '@prisma/adapter-pg';
 import {telegramIdentity,signSession,sessionIdentity,microsToDecimal,validWebhook} from './security.js';
 import {catalog} from './catalog.js';
+import {Query as QueryParam, NotFoundException} from '@nestjs/common';
+import {catalogueQuery,present,MARKET_VERSION,PURCHASES_ENABLED,type CatalogRow} from './market.js';
 const {BOT_TOKEN,SESSION_SECRET,OWNER_TELEGRAM_ID,DATABASE_URL}=process.env;
 if(!BOT_TOKEN||!SESSION_SECRET||SESSION_SECRET.length<48||!OWNER_TELEGRAM_ID||!DATABASE_URL) throw Error('Missing secure runtime configuration');
 const db=new PrismaClient({adapter:new PrismaPg({connectionString:DATABASE_URL,max:4})});
@@ -15,6 +17,22 @@ function field(body:Record<string,unknown>,key:string,max:number,min=1) {const v
 function uuid(value:string) {if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value))throw new BadRequestException('Некорректный идентификатор.');return value;}
 @Controller('api')
 class Api {
+  @Get('v1/market') async market(@QueryParam('category') category?:string,@QueryParam('sort') sort?:string){
+    let q;try{q=catalogueQuery(category,sort);}catch(e){throw new BadRequestException((e as Error).message);}
+    const rows=await db.$queryRawUnsafe<CatalogRow[]>(q.sql,...q.params);
+    return {version:MARKET_VERSION,nodes:rows.map(present),purchasesEnabled:PURCHASES_ENABLED,updatedAt:new Date().toISOString()};
+  }
+  @Get('v1/market/leases') async leases(@Headers('authorization') auth:string){
+    return db.userLease.findMany({where:{userId:identity(auth)},orderBy:{createdAt:'desc'},take:100});
+  }
+  @Get('v1/market/:id') async marketDetail(@Param('id') id:string){
+    const rows=await db.$queryRawUnsafe<CatalogRow[]>('SELECT * FROM gpu_catalog WHERE id=$1 AND is_active=TRUE',id);
+    if(!rows.length)throw new NotFoundException('Нода не найдена.');return present(rows[0]);
+  }
+  @Post('v1/market/buy') buy(@Headers('authorization') auth:string){
+    identity(auth);
+    throw new ServiceUnavailableException({code:'CONTRACTS_NOT_CONNECTED',message:'Аренда с оплатой откроется после подключения контрактов. Сейчас доступна заявка.'});
+  }
   @Post('telegram/webhook') async webhook(@Headers('x-telegram-bot-api-secret-token') secret:string,@Body() update:any){
     if(!validWebhook(secret,process.env.BOT_WEBHOOK_SECRET))throw new UnauthorizedException();
     if(!Number.isSafeInteger(update?.update_id)||update.update_id<0)throw new BadRequestException();
@@ -51,7 +69,9 @@ class Api {
   }
   @Post('requests') async request(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){
     const id=identity(auth), nodeId=field(body,'nodeId',40),profile=field(body,'profile',30),workload=field(body,'workload',1500,5),key=uuid(field(body,'idempotencyKey',36));
-    if(!catalog.some(n=>n.id===nodeId&&n.status==='ON_REQUEST')||!['ECO','BALANCED','PERFORMANCE'].includes(profile))throw new BadRequestException('Нода или профиль недоступны.');
+    const marketNode=await db.gpuCatalog.findUnique({where:{id:nodeId}});
+    const eligible=marketNode?marketNode.isActive&&!marketNode.isExperimental&&(!marketNode.supplyKnown||marketNode.availableSupply>0):catalog.some(n=>n.id===nodeId&&n.status==='ON_REQUEST');
+    if(!eligible||!['ECO','BALANCED','PERFORMANCE'].includes(profile))throw new BadRequestException('Нода или профиль недоступны.');
     const prior=await db.rentalRequest.findUnique({where:{userId_idempotencyKey:{userId:id,idempotencyKey:key}}});if(prior)return prior;
     // One open request per user: transaction-level advisory lock prevents concurrent duplicates.
     return db.$transaction(async tx=>{

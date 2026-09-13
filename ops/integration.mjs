@@ -9,6 +9,15 @@ try{
  let healthy=false;for(let i=0;i<40;i++){try{if((await call('/health')).status===200){healthy=true;break;}}catch{}await new Promise(r=>setTimeout(r,200));}assert.ok(healthy,'API starts');
  assert.equal((await call('/me')).status,401);assert.equal((await call('/telegram/webhook',null,{update_id:1})).status,401);
  const owner=await login(11111),user=await login(22222),other=await login(33333);
+ const market=await call('/v1/market');assert.equal(market.status,200);assert.equal(market.data.version,'market-v1');assert.equal(market.data.nodes.length,4);assert.equal(market.data.nodes[0].dailyUsdt,'1.750000');assert.equal(market.data.nodes[0].remainingPercent,null);
+ const enterprise=await call('/v1/market?category=ENTERPRISE&sort=price_desc');assert.equal(enterprise.data.nodes.length,2);assert.equal(enterprise.data.nodes[0].id,'NODE_H100');
+ assert.equal((await call('/v1/market?sort=invalid')).status,400);
+ assert.equal((await call('/v1/market/NODE_QBIT')).data.availability,'CONCEPT');
+ assert.equal((await call('/v1/market/unknown')).status,404);
+ assert.equal((await call('/v1/market/leases')).status,401);
+ assert.deepEqual((await call('/v1/market/leases',user)).data,[]);
+ assert.equal((await call('/v1/market/buy',null,{node_id:'NODE_4090'})).status,401);
+ assert.equal((await call('/v1/market/buy',user,{node_id:'NODE_4090'})).status,503);
  assert.equal((await call('/admin',user)).status,403);assert.equal((await call('/admin',owner)).status,200);
  const body={nodeId:'rtx4090',profile:'BALANCED',workload:'CI training request',idempotencyKey:randomUUID()};
  const [a,b]=await Promise.all([call('/requests',user,body),call('/requests',user,body)]);assert.equal(a.status,201);assert.equal(b.status,201);assert.equal(a.data.id,b.data.id);
@@ -17,6 +26,8 @@ try{
  assert.equal((await call('/admin/requests/'+a.data.id,user,{status:'CLOSED'},'PATCH')).status,403);
  assert.equal((await call('/admin/requests/'+a.data.id,owner,{status:'CLOSED'},'PATCH')).status,200);
  assert.equal((await call('/requests',other,{...body,nodeId:'quantum'})).status,400);
+ assert.equal((await call('/requests',other,{...body,nodeId:'NODE_QBIT',idempotencyKey:randomUUID()})).status,400);
+ assert.equal((await call('/requests',other,{...body,nodeId:'NODE_H100',idempotencyKey:randomUUID()})).status,201);
  const ticket=await call('/support',user,{message:'Need help with access'});assert.equal(ticket.status,201);
  assert.equal((await call('/admin/tickets/'+ticket.data.id,owner,{reply:'We received your request'},'PATCH')).status,200);
  assert.equal((await call('/me',user)).data.tickets[0].reply,'We received your request');
