@@ -1,5 +1,6 @@
-declare global {interface Window{Telegram?:{WebApp:{initData:string;ready:()=>void;expand:()=>void;setHeaderColor?:(s:string)=>void;setBackgroundColor?:(s:string)=>void;HapticFeedback?:{impactOccurred:(s:string)=>void};openTelegramLink?:(s:string)=>void}}}}
-let token='';export const setToken=(v:string)=>{token=v;};
+declare global {interface Window{Telegram?:{WebApp:{initData:string;isExpanded?:boolean;ready:()=>void;expand:()=>void;onEvent?:(event:string,callback:()=>void)=>void;offEvent?:(event:string,callback:()=>void)=>void;setHeaderColor?:(s:string)=>void;setBackgroundColor?:(s:string)=>void;HapticFeedback?:{impactOccurred:(s:string)=>void};openTelegramLink?:(s:string)=>void}}}}
+let token='';export const setToken=(v:string)=>{token=v;try{if(v)sessionStorage.setItem('aethermind.session',v);else sessionStorage.removeItem('aethermind.session');}catch{}};
+export function savedToken(){try{return sessionStorage.getItem('aethermind.session')||'';}catch{return '';}}
 export async function api<T=any>(path:string,body?:unknown,method=body?'POST':'GET'):Promise<T>{
   const response=await fetch('/api'+path,{method,signal:AbortSignal.timeout(15000),headers:{...(body?{'Content-Type':'application/json'}:{}),...(token?{Authorization:'Bearer '+token}:{})},body:body?JSON.stringify(body):undefined});
   const data=await response.json();if(!response.ok)throw Error(data.message||'Запрос не выполнен.');return data;

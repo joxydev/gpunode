@@ -37,3 +37,4 @@ jobs:
       - run: node ops/integration.mjs
       - run: bash -n ops/vps.sh
       - run: bash -n ops/market-deploy.sh
+      - run: bash -n ops/entry-deploy.sh

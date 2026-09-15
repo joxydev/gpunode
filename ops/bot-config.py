@@ -15,9 +15,11 @@ current=call('getWebhookInfo',{})
 target=env['PUBLIC_URL']+'/api/telegram/webhook'
 if current.get('url') and current['url']!=target:
     raise SystemExit('У бота уже настроен другой webhook. Он не изменён. Отключите прежний обработчик и согласуйте замену.')
-call('setWebhook',{'url':target,'secret_token':env['BOT_WEBHOOK_SECRET'],'allowed_updates':['message'],'drop_pending_updates':False})
+call('setWebhook',{'url':target,'secret_token':env['BOT_WEBHOOK_SECRET'],'allowed_updates':['message','callback_query'],'drop_pending_updates':False})
 call('setChatMenuButton',{'menu_button':{'type':'web_app','text':'Открыть AetherMind','web_app':{'url':env['PUBLIC_URL']+'/'}}})
 call('setMyCommands',{'commands':[{'command':'start','description':'Открыть AetherMind'},{'command':'support','description':'Поддержка'},{'command':'terms','description':'Условия работы'}]})
 button=call('getChatMenuButton',{})
+hook=call('getWebhookInfo',{})
+if hook.get('url')!=target or 'callback_query' not in hook.get('allowed_updates',[]):raise SystemExit('Не удалось проверить подтверждение входа через бота.')
 if button.get('web_app',{}).get('url')!=env['PUBLIC_URL']+'/':raise SystemExit('Не удалось проверить кнопку меню.')
 print('Бот @'+bot['username']+': кнопка меню, /start и webhook настроены.')

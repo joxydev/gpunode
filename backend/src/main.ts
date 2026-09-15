@@ -8,6 +8,10 @@ import {telegramIdentity,signSession,sessionIdentity,microsToDecimal,validWebhoo
 import {catalog} from './catalog.js';
 import {Query as QueryParam, NotFoundException} from '@nestjs/common';
 import {catalogueQuery,present,MARKET_VERSION,PURCHASES_ENABLED,type CatalogRow} from './market.js';
+import {Req} from '@nestjs/common';
+import type {FastifyRequest} from 'fastify';
+import {createHmac} from 'node:crypto';
+import {createBrowserLogin,bindBrowserLogin,decideBrowserLogin,pollBrowserLogin,loginCode} from './browser-auth.js';
 const {BOT_TOKEN,SESSION_SECRET,OWNER_TELEGRAM_ID,DATABASE_URL}=process.env;
 if(!BOT_TOKEN||!SESSION_SECRET||SESSION_SECRET.length<48||!OWNER_TELEGRAM_ID||!DATABASE_URL) throw Error('Missing secure runtime configuration');
 const db=new PrismaClient({adapter:new PrismaPg({connectionString:DATABASE_URL,max:4})});
@@ -15,8 +19,23 @@ function identity(auth?:string) {try{return sessionIdentity(auth,SESSION_SECRET!
 function owner(auth?:string) {const id=identity(auth);if(id!==OWNER_TELEGRAM_ID) throw new ForbiddenException();return id;}
 function field(body:Record<string,unknown>,key:string,max:number,min=1) {const value=body?.[key];if(typeof value!=='string'||value.trim().length<min||value.length>max)throw new BadRequestException(`Проверьте поле ${key}.`);return value.trim();}
 function uuid(value:string) {if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value))throw new BadRequestException('Некорректный идентификатор.');return value;}
+async function telegram(method:string,body:unknown){
+ try{const r=await fetch('https://api.telegram.org/bot'+BOT_TOKEN+'/'+method,{method:'POST',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const result=await r.json() as {ok:boolean};if(!r.ok||!result.ok)throw Error();}
+ catch{throw new ServiceUnavailableException('Telegram временно недоступен. Повторите запрос.');}
+}
 @Controller('api')
 class Api {
+  @Post('auth/browser/start') async browserStart(@Req() req:FastifyRequest){
+    const bot=process.env.BOT_USERNAME||'';if(!/^[a-zA-Z0-9_]{5,32}$/.test(bot))throw new ServiceUnavailableException('Бот для входа ещё не настроен.');
+    const ipHash=createHmac('sha256',SESSION_SECRET!).update(req.ip).digest('hex');
+    try{const c=await db.$transaction(tx=>createBrowserLogin((sql,params=[])=>tx.$queryRawUnsafe(sql,...params),ipHash));return {...c,url:`https://t.me/${bot}?start=login_${c.id}`};}
+    catch(e){if((e as Error).message.startsWith('Слишком много'))throw new BadRequestException((e as Error).message);throw e;}
+  }
+  @Post('auth/browser/poll') async browserPoll(@Body() body:Record<string,unknown>){
+    const id=field(body,'id',36),secret=field(body,'secret',64);
+    const r=await db.$transaction(tx=>pollBrowserLogin((sql,params=[])=>tx.$queryRawUnsafe(sql,...params),id,secret));
+    return r.userId?{status:r.status,token:signSession(r.userId,SESSION_SECRET!),expiresIn:21600}:{status:r.status};
+  }
   @Get('v1/market') async market(@QueryParam('category') category?:string,@QueryParam('sort') sort?:string){
     let q;try{q=catalogueQuery(category,sort);}catch(e){throw new BadRequestException((e as Error).message);}
     const rows=await db.$queryRawUnsafe<CatalogRow[]>(q.sql,...q.params);
@@ -37,8 +56,22 @@ class Api {
     if(!validWebhook(secret,process.env.BOT_WEBHOOK_SECRET))throw new UnauthorizedException();
     if(!Number.isSafeInteger(update?.update_id)||update.update_id<0)throw new BadRequestException();
     const uid=BigInt(update.update_id);if(await db.botUpdate.findUnique({where:{id:uid}}))return {ok:true};
+    const callback=update.callback_query;
+    if(callback){
+      const match=typeof callback.data==='string'?callback.data.match(/^bl:([yn]):([0-9a-f-]{36})$/):null;
+      if(!match||typeof callback.id!=='string'||!Number.isSafeInteger(callback.from?.id)||callback.message?.chat?.type!=='private'||callback.message.chat.id!==callback.from.id)return {ok:true};
+      const changed=await db.$transaction(tx=>decideBrowserLogin((sql,params=[])=>tx.$queryRawUnsafe(sql,...params),match[2],{id:String(callback.from.id),name:String(callback.from.first_name||'Пользователь'),username:callback.from.username},match[1]==='y'));
+      await telegram('answerCallbackQuery',{callback_query_id:callback.id,text:changed?(match[1]==='y'?'Вход подтверждён. Вернитесь в браузер.':'Вход отклонён.'):'Запрос уже обработан или истёк.',show_alert:true});
+      await db.botUpdate.upsert({where:{id:uid},create:{id:uid},update:{}});return {ok:true};
+    }
     const msg=update.message;
     if(msg?.chat?.type!=='private'||!Number.isSafeInteger(msg?.from?.id)||msg.from.id!==msg.chat.id||typeof msg.text!=='string')return {ok:true};
+    const browser=msg.text.match(/^\/start(?:@[a-zA-Z0-9_]+)?\s+login_([0-9a-f-]{36})$/);
+    if(browser){
+      const bound=await db.$transaction(tx=>bindBrowserLogin((sql,params=[])=>tx.$queryRawUnsafe(sql,...params),browser[1],String(msg.from.id)));
+      await telegram('sendMessage',{chat_id:msg.chat.id,text:bound?`Вход в AetherMind в браузере ${process.env.PUBLIC_URL}.\nКод запроса: ${loginCode(browser[1])}.\nСверьте код с открытой вкладкой. Подтверждайте только вход, который вы начали сами. После подтверждения вернитесь в ту же вкладку.`:'Запрос входа истёк или уже обработан. Начните вход заново в браузере.',...(bound?{reply_markup:{inline_keyboard:[[{text:'Подтвердить вход',callback_data:`bl:y:${browser[1]}`},{text:'Отклонить',callback_data:`bl:n:${browser[1]}`}]]}}:{})});
+      await db.botUpdate.upsert({where:{id:uid},create:{id:uid},update:{}});return {ok:true};
+    }
     const command=msg.text.split(/[\s@]/)[0];if(!['/start','/support','/terms','/paysupport'].includes(command))return {ok:true};
     const userId=String(msg.from.id),ref=msg.text.match(/^\/start\s+r_([1-9][0-9]{0,15})$/)?.[1];
     if(ref&&ref!==userId&&!await db.user.findUnique({where:{id:userId}})&&await db.user.findUnique({where:{id:ref}}))await db.invite.upsert({where:{telegramId:userId},create:{telegramId:userId,referrerId:ref},update:{}});
@@ -68,7 +101,7 @@ class Api {
     return {user:{id:user.id,name:user.name,username:user.username,isOwner:id===OWNER_TELEGRAM_ID},balance:microsToDecimal(total._sum.amountMicros||0n),earnedToday:null,requests,tickets,activeNodes:[],referrals:refs,entries:entries.map(e=>({...e,amountMicros:undefined,amount:microsToDecimal(e.amountMicros)})),updatedAt:new Date().toISOString()};
   }
   @Post('requests') async request(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){
-    const id=identity(auth), nodeId=field(body,'nodeId',40),profile=field(body,'profile',30),workload=field(body,'workload',1500,5),key=uuid(field(body,'idempotencyKey',36));
+    const id=identity(auth), nodeId=field(body,'nodeId',64),profile=field(body,'profile',30),workload='Распределение мощностей и задач выполняет сервис AetherMind.',key=uuid(field(body,'idempotencyKey',36));
     const marketNode=await db.gpuCatalog.findUnique({where:{id:nodeId}});
     const eligible=marketNode?marketNode.isActive&&!marketNode.isExperimental&&(!marketNode.supplyKnown||marketNode.availableSupply>0):catalog.some(n=>n.id===nodeId&&n.status==='ON_REQUEST');
     if(!eligible||!['ECO','BALANCED','PERFORMANCE'].includes(profile))throw new BadRequestException('Нода или профиль недоступны.');

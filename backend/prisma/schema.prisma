@@ -66,6 +66,18 @@ model BotUpdate {
   id BigInt @id
   createdAt DateTime @default(now())
 }
+model BrowserLogin {
+  id String @id @db.Uuid
+  secretHash String @map("secret_hash") @db.VarChar(64)
+  ipHash String @map("ip_hash") @db.VarChar(64)
+  telegramId String? @map("telegram_id")
+  status String @default("PENDING")
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(3)
+  @@index([ipHash])
+  @@index([expiresAt])
+  @@map("browser_logins")
+}
 model GpuCatalog {
   id String @id @db.VarChar(64)
   name String @db.VarChar(255)
