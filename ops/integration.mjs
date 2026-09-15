@@ -9,6 +9,13 @@ try{
  let healthy=false;for(let i=0;i<40;i++){try{if((await call('/health')).status===200){healthy=true;break;}}catch{}await new Promise(r=>setTimeout(r,200));}assert.ok(healthy,'API starts');
  assert.equal((await call('/me')).status,401);assert.equal((await call('/telegram/webhook',null,{update_id:1})).status,401);
  const owner=await login(11111),user=await login(22222),other=await login(33333);
+ const beforeAgreement=await call('/me',user);assert.equal(beforeAgreement.data.agreement.accepted,false);assert.equal(beforeAgreement.data.agreement.version,'2026-09-14');
+ assert.equal((await call('/requests',user,{nodeId:'rtx4090',profile:'BALANCED',idempotencyKey:randomUUID()})).status,403);
+ assert.equal((await call('/agreement/accept',user,{version:'outdated'})).status,400);
+ const accepted=await call('/agreement/accept',user,{version:'2026-09-14'});assert.equal(accepted.status,201);assert.equal(accepted.data.accepted,true);
+ const acceptedAgain=await call('/agreement/accept',user,{version:'2026-09-14'});assert.equal(acceptedAgain.data.acceptedAt,accepted.data.acceptedAt);
+ for(const token of [owner,other])assert.equal((await call('/agreement/accept',token,{version:'2026-09-14'})).status,201);
+ assert.equal((await call('/me',user)).data.agreement.accepted,true);
  const market=await call('/v1/market');assert.equal(market.status,200);assert.equal(market.data.version,'market-v1');assert.equal(market.data.nodes.length,4);assert.equal(market.data.nodes[0].dailyUsdt,'1.750000');assert.equal(market.data.nodes[0].remainingPercent,null);
  const enterprise=await call('/v1/market?category=ENTERPRISE&sort=price_desc');assert.equal(enterprise.data.nodes.length,2);assert.equal(enterprise.data.nodes[0].id,'NODE_H100');
  assert.equal((await call('/v1/market?sort=invalid')).status,400);
@@ -37,5 +44,5 @@ try{
  assert.equal((await call('/admin/tickets/'+ticket.data.id,owner,{reply:'We received your request'},'PATCH')).status,200);
  assert.equal((await call('/me',user)).data.tickets[0].reply,'We received your request');
  assert.equal((await call('/payments',user,{})).status,503);assert.equal((await call('/withdrawals',user,{})).status,503);assert.equal((await call('/me',user)).data.balance,'0.000000');
- console.log('Integration checks passed: auth, ownership, idempotency, workflow, support, payment gates.');
+ console.log('Integration checks passed: auth, one-time agreement, ownership, idempotency, workflow, support and payment gates.');
 }finally{child.kill('SIGTERM');}

@@ -9,6 +9,8 @@ model User {
   name String
   username String?
   referrerId String?
+  agreementVersion String?
+  agreementAcceptedAt DateTime?
   createdAt DateTime @default(now())
   requests RentalRequest[]
   tickets Ticket[]

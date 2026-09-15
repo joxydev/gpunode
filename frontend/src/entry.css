@@ -2,3 +2,4 @@
 .browser-login-code{padding:18px;margin:20px 0;border:1px solid #00f0ff55;border-radius:12px;text-align:center;letter-spacing:7px;font:28px 'Space Grotesk',monospace;color:#00f0ff;background:#00f0ff09}
 .modal a.primary{text-decoration:none}
 .welcome-account{margin:18px 0 0;font-size:12px;color:#95a9c2}
+.welcome-links{display:flex;justify-content:center;gap:16px;flex-wrap:wrap}

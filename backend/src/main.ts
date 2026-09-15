@@ -13,10 +13,12 @@ import type {FastifyRequest} from 'fastify';
 import {createHmac} from 'node:crypto';
 import {createBrowserLogin,bindBrowserLogin,decideBrowserLogin,pollBrowserLogin,loginCode} from './browser-auth.js';
 const {BOT_TOKEN,SESSION_SECRET,OWNER_TELEGRAM_ID,DATABASE_URL}=process.env;
+const AGREEMENT_VERSION='2026-09-14';
 if(!BOT_TOKEN||!SESSION_SECRET||SESSION_SECRET.length<48||!OWNER_TELEGRAM_ID||!DATABASE_URL) throw Error('Missing secure runtime configuration');
 const db=new PrismaClient({adapter:new PrismaPg({connectionString:DATABASE_URL,max:4})});
 function identity(auth?:string) {try{return sessionIdentity(auth,SESSION_SECRET!);}catch(e){throw new UnauthorizedException((e as Error).message);}}
-function owner(auth?:string) {const id=identity(auth);if(id!==OWNER_TELEGRAM_ID) throw new ForbiddenException();return id;}
+async function agreed(auth?:string){const id=identity(auth);const user=await db.user.findUnique({where:{id},select:{agreementVersion:true,agreementAcceptedAt:true}});if(user?.agreementVersion!==AGREEMENT_VERSION||!user.agreementAcceptedAt)throw new ForbiddenException({code:'AGREEMENT_REQUIRED',message:'Примите пользовательское соглашение, чтобы продолжить.',version:AGREEMENT_VERSION});return id;}
+async function agreedOwner(auth?:string){const id=await agreed(auth);if(id!==OWNER_TELEGRAM_ID)throw new ForbiddenException();return id;}
 function field(body:Record<string,unknown>,key:string,max:number,min=1) {const value=body?.[key];if(typeof value!=='string'||value.trim().length<min||value.length>max)throw new BadRequestException(`Проверьте поле ${key}.`);return value.trim();}
 function uuid(value:string) {if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value))throw new BadRequestException('Некорректный идентификатор.');return value;}
 async function telegram(method:string,body:unknown){
@@ -42,14 +44,14 @@ class Api {
     return {version:MARKET_VERSION,nodes:rows.map(present),purchasesEnabled:PURCHASES_ENABLED,updatedAt:new Date().toISOString()};
   }
   @Get('v1/market/leases') async leases(@Headers('authorization') auth:string){
-    return db.userLease.findMany({where:{userId:identity(auth)},orderBy:{createdAt:'desc'},take:100});
+    return db.userLease.findMany({where:{userId:await agreed(auth)},orderBy:{createdAt:'desc'},take:100});
   }
   @Get('v1/market/:id') async marketDetail(@Param('id') id:string){
     const rows=await db.$queryRawUnsafe<CatalogRow[]>('SELECT * FROM gpu_catalog WHERE id=$1 AND is_active=TRUE',id);
     if(!rows.length)throw new NotFoundException('Нода не найдена.');return present(rows[0]);
   }
-  @Post('v1/market/buy') buy(@Headers('authorization') auth:string){
-    identity(auth);
+  @Post('v1/market/buy') async buy(@Headers('authorization') auth:string){
+    await agreed(auth);
     throw new ServiceUnavailableException({code:'CONTRACTS_NOT_CONNECTED',message:'Аренда с оплатой откроется после подключения контрактов. Сейчас доступна заявка.'});
   }
   @Post('telegram/webhook') async webhook(@Headers('x-telegram-bot-api-secret-token') secret:string,@Body() update:any){
@@ -98,10 +100,14 @@ class Api {
       db.user.count({where:{referrerId:id}}),
       db.ticket.findMany({where:{userId:id},orderBy:{createdAt:'desc'},take:30})
     ]);
-    return {user:{id:user.id,name:user.name,username:user.username,isOwner:id===OWNER_TELEGRAM_ID},balance:microsToDecimal(total._sum.amountMicros||0n),earnedToday:null,requests,tickets,activeNodes:[],referrals:refs,entries:entries.map(e=>({...e,amountMicros:undefined,amount:microsToDecimal(e.amountMicros)})),updatedAt:new Date().toISOString()};
+    const accepted=user.agreementVersion===AGREEMENT_VERSION&&Boolean(user.agreementAcceptedAt);return {user:{id:user.id,name:user.name,username:user.username,isOwner:id===OWNER_TELEGRAM_ID},agreement:{version:AGREEMENT_VERSION,accepted,acceptedAt:accepted?user.agreementAcceptedAt:null},balance:microsToDecimal(total._sum.amountMicros||0n),earnedToday:null,requests,tickets,activeNodes:[],referrals:refs,entries:entries.map(e=>({...e,amountMicros:undefined,amount:microsToDecimal(e.amountMicros)})),updatedAt:new Date().toISOString()};
+  }
+  @Post('agreement/accept') async acceptAgreement(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){
+    const id=identity(auth),version=field(body,'version',32);if(version!==AGREEMENT_VERSION)throw new BadRequestException('Версия соглашения устарела. Обновите приложение.');
+    return db.$transaction(async tx=>{await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${id}, 23))`;const current=await tx.user.findUnique({where:{id},select:{agreementVersion:true,agreementAcceptedAt:true}});if(!current)throw new UnauthorizedException();if(current.agreementVersion===version&&current.agreementAcceptedAt)return {version,accepted:true,acceptedAt:current.agreementAcceptedAt};const acceptedAt=new Date();await tx.user.update({where:{id},data:{agreementVersion:version,agreementAcceptedAt:acceptedAt}});await tx.audit.create({data:{actorId:id,action:'AGREEMENT_ACCEPTED',targetId:version}});return {version,accepted:true,acceptedAt};});
   }
   @Post('requests') async request(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){
-    const id=identity(auth), nodeId=field(body,'nodeId',64),profile=field(body,'profile',30),workload='Распределение мощностей и задач выполняет сервис AetherMind.',key=uuid(field(body,'idempotencyKey',36));
+    const id=await agreed(auth), nodeId=field(body,'nodeId',64),profile=field(body,'profile',30),workload='Распределение мощностей и задач выполняет сервис AetherMind.',key=uuid(field(body,'idempotencyKey',36));
     const marketNode=await db.gpuCatalog.findUnique({where:{id:nodeId}});
     const eligible=marketNode?marketNode.isActive&&!marketNode.isExperimental&&(!marketNode.supplyKnown||marketNode.availableSupply>0):catalog.some(n=>n.id===nodeId&&n.status==='ON_REQUEST');
     if(!eligible||!['ECO','BALANCED','PERFORMANCE'].includes(profile))throw new BadRequestException('Нода или профиль недоступны.');
@@ -116,19 +122,19 @@ class Api {
     });
   }
   @Post('support') async support(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){
-    const userId=identity(auth),message=field(body,'message',2000,5);
+    const userId=await agreed(auth),message=field(body,'message',2000,5);
     if(await db.ticket.count({where:{userId,createdAt:{gt:new Date(Date.now()-3600000)}}})>=5)throw new BadRequestException('Не более 5 обращений в час.');
     return db.ticket.create({data:{userId,message}});
   }
-  @Post('payments') payment(@Headers('authorization') auth:string){identity(auth);throw new ServiceUnavailableException('Приём оплаты не подключён. Не переводите деньги по сторонним реквизитам.');}
-  @Post('withdrawals') withdrawal(@Headers('authorization') auth:string){identity(auth);throw new ServiceUnavailableException('Вывод не подключён. Баланс не изменён.');}
-  @Get('admin') async admin(@Headers('authorization') auth:string){owner(auth);const [users,requests,tickets,audit]=await Promise.all([db.user.count(),db.rentalRequest.findMany({orderBy:{createdAt:'desc'},take:100,include:{user:{select:{name:true}}}}),db.ticket.findMany({orderBy:{createdAt:'desc'},take:100,include:{user:{select:{name:true}}}}),db.audit.findMany({orderBy:{createdAt:'desc'},take:100})]);return {users,requests,tickets,audit};}
+  @Post('payments') async payment(@Headers('authorization') auth:string){await agreed(auth);throw new ServiceUnavailableException('Приём оплаты не подключён. Не переводите деньги по сторонним реквизитам.');}
+  @Post('withdrawals') async withdrawal(@Headers('authorization') auth:string){await agreed(auth);throw new ServiceUnavailableException('Вывод не подключён. Баланс не изменён.');}
+  @Get('admin') async admin(@Headers('authorization') auth:string){await agreedOwner(auth);const [users,requests,tickets,audit]=await Promise.all([db.user.count(),db.rentalRequest.findMany({orderBy:{createdAt:'desc'},take:100,include:{user:{select:{name:true}}}}),db.ticket.findMany({orderBy:{createdAt:'desc'},take:100,include:{user:{select:{name:true}}}}),db.audit.findMany({orderBy:{createdAt:'desc'},take:100})]);return {users,requests,tickets,audit};}
   @Patch('admin/requests/:id') async review(@Headers('authorization') auth:string,@Param('id') target:string,@Body() body:Record<string,unknown>){
-    const actorId=owner(auth),id=uuid(target),status=field(body,'status',20);if(!['REVIEWED','CLOSED'].includes(status))throw new BadRequestException();
+    const actorId=await agreedOwner(auth),id=uuid(target),status=field(body,'status',20);if(!['REVIEWED','CLOSED'].includes(status))throw new BadRequestException();
     return db.$transaction(async tx=>{const result=await tx.rentalRequest.update({where:{id},data:{status}});await tx.audit.create({data:{actorId,action:`REQUEST_${status}`,targetId:id}});return result;});
   }
   @Patch('admin/tickets/:id') async reply(@Headers('authorization') auth:string,@Param('id') target:string,@Body() body:Record<string,unknown>){
-    const actorId=owner(auth),id=uuid(target),reply=field(body,'reply',2000,2);
+    const actorId=await agreedOwner(auth),id=uuid(target),reply=field(body,'reply',2000,2);
     return db.$transaction(async tx=>{const result=await tx.ticket.update({where:{id},data:{reply}});await tx.audit.create({data:{actorId,action:'SUPPORT_REPLY',targetId:id}});return result;});
   }
 }
