@@ -9,7 +9,7 @@ test('browser login: proof, confirmation owner, denial, expiry, replay and rate 
  try{
   await db.exec(readFileSync(new URL('../prisma/migrations/202609130001_initial/migration.sql',import.meta.url),'utf8'));
   await db.exec(readFileSync(new URL('../prisma/migrations/202609150001_browser_login/migration.sql',import.meta.url),'utf8'));
-  const tx=<T>(fn:(q:Query)=>Promise<T>)=>db.transaction(t=>fn(async(sql,params)=>(await t.query(sql,params)).rows as any));
+  const tx=<T>(fn:(q:Query)=>Promise<T>)=>db.transaction(t=>fn(async(sql,params)=>{const result=await t.query(sql,params);assert.ok(result.fields.every(field=>field.dataTypeID!==2278),'Raw queries must not return PostgreSQL void to Prisma');return result.rows as any;}));
   const c=await tx(q=>createBrowserLogin(q,'ip1'));
   assert.equal((await tx(q=>pollBrowserLogin(q,c.id,c.secret))).status,'PENDING');
   assert.equal(await tx(q=>decideBrowserLogin(q,c.id,{id:'123',name:'Unbound'},true)),false);

@@ -6,7 +6,7 @@ export const loginCode=(id:string)=>id.slice(0,6).toUpperCase();
 export async function createBrowserLogin(q:Query,ipHash:string){
  await q('DELETE FROM browser_logins WHERE expires_at < CURRENT_TIMESTAMP RETURNING id');
  // Call inside a transaction: lock makes the per-client limit atomic.
- await q('SELECT pg_advisory_xact_lock(hashtextextended($1, 17))',[ipHash]);
+ await q('SELECT 1::int AS locked FROM pg_advisory_xact_lock(hashtextextended($1, 17))',[ipHash]);
  const [count]=await q('SELECT count(*)::int AS n FROM browser_logins WHERE ip_hash=$1',[ipHash]);
  if(count.n>=5)throw Error('Слишком много запросов входа. Повторите через пять минут.');
  const id=randomUUID(),secret=randomBytes(32).toString('hex');
