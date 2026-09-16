@@ -107,10 +107,10 @@ class Api {
     return db.$transaction(async tx=>{await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${id}, 23))`;const current=await tx.user.findUnique({where:{id},select:{agreementVersion:true,agreementAcceptedAt:true}});if(!current)throw new UnauthorizedException();if(current.agreementVersion===version&&current.agreementAcceptedAt)return {version,accepted:true,acceptedAt:current.agreementAcceptedAt};const acceptedAt=new Date();await tx.user.update({where:{id},data:{agreementVersion:version,agreementAcceptedAt:acceptedAt}});await tx.audit.create({data:{actorId:id,action:'AGREEMENT_ACCEPTED',targetId:version}});return {version,accepted:true,acceptedAt};});
   }
   @Post('requests') async request(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){
-    const id=await agreed(auth), nodeId=field(body,'nodeId',64),profile=field(body,'profile',30),workload='Распределение мощностей и задач выполняет сервис AetherMind.',key=uuid(field(body,'idempotencyKey',36));
+    const id=await agreed(auth), nodeId=field(body,'nodeId',64),profile='MANAGED',workload='Распределение мощностей и задач выполняет сервис AetherMind.',key=uuid(field(body,'idempotencyKey',36));
     const marketNode=await db.gpuCatalog.findUnique({where:{id:nodeId}});
     const eligible=marketNode?marketNode.isActive&&!marketNode.isExperimental&&(!marketNode.supplyKnown||marketNode.availableSupply>0):catalog.some(n=>n.id===nodeId&&n.status==='ON_REQUEST');
-    if(!eligible||!['ECO','BALANCED','PERFORMANCE'].includes(profile))throw new BadRequestException('Нода или профиль недоступны.');
+    if(!eligible)throw new BadRequestException('Нода недоступна.');
     const prior=await db.rentalRequest.findUnique({where:{userId_idempotencyKey:{userId:id,idempotencyKey:key}}});if(prior)return prior;
     // One open request per user: transaction-level advisory lock prevents concurrent duplicates.
     return db.$transaction(async tx=>{

@@ -26,9 +26,9 @@ try{
  assert.equal((await call('/v1/market/buy',null,{node_id:'NODE_4090'})).status,401);
  assert.equal((await call('/v1/market/buy',user,{node_id:'NODE_4090'})).status,503);
  assert.equal((await call('/admin',user)).status,403);assert.equal((await call('/admin',owner)).status,200);
- const body={nodeId:'rtx4090',profile:'BALANCED',idempotencyKey:randomUUID()};
+ const body={nodeId:'rtx4090',idempotencyKey:randomUUID()};
  const [a,b]=await Promise.all([call('/requests',user,body),call('/requests',user,body)]);assert.equal(a.status,201);assert.equal(b.status,201);assert.equal(a.data.id,b.data.id);
- assert.equal(a.data.workload,'Распределение мощностей и задач выполняет сервис AetherMind.');
+ assert.equal(a.data.workload,'Распределение мощностей и задач выполняет сервис AetherMind.');assert.equal(a.data.profile,'MANAGED');
  const browser=await call('/auth/browser/start',null,{});assert.equal(browser.status,201);assert.match(browser.data.url,/^https:\/\/t.me\/aethermind_ci_bot\?start=login_/);
  assert.equal((await call('/auth/browser/poll',null,{id:browser.data.id,secret:browser.data.secret})).data.status,'PENDING');
  assert.equal((await call('/auth/browser/poll',null,{id:browser.data.id,secret:'0'.repeat(64)})).data.status,'EXPIRED');
@@ -39,7 +39,7 @@ try{
  assert.equal((await call('/admin/requests/'+a.data.id,owner,{status:'CLOSED'},'PATCH')).status,200);
  assert.equal((await call('/requests',other,{...body,nodeId:'quantum'})).status,400);
  assert.equal((await call('/requests',other,{...body,nodeId:'NODE_QBIT',idempotencyKey:randomUUID()})).status,400);
- const managed=await call('/requests',other,{...body,nodeId:'NODE_H100',workload:'Ignored client-selected workload',idempotencyKey:randomUUID()});assert.equal(managed.status,201);assert.equal(managed.data.workload,'Распределение мощностей и задач выполняет сервис AetherMind.');
+ const managed=await call('/requests',other,{...body,nodeId:'NODE_H100',profile:'ECO',workload:'Ignored client-selected workload',idempotencyKey:randomUUID()});assert.equal(managed.status,201);assert.equal(managed.data.profile,'MANAGED');assert.equal(managed.data.workload,'Распределение мощностей и задач выполняет сервис AetherMind.');
  const ticket=await call('/support',user,{message:'Need help with access'});assert.equal(ticket.status,201);
  assert.equal((await call('/admin/tickets/'+ticket.data.id,owner,{reply:'We received your request'},'PATCH')).status,200);
  assert.equal((await call('/me',user)).data.tickets[0].reply,'We received your request');

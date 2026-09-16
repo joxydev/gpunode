@@ -39,3 +39,4 @@ jobs:
       - run: bash -n ops/market-deploy.sh
       - run: bash -n ops/entry-deploy.sh
       - run: bash -n ops/agreement-deploy.sh
+      - run: bash -n ops/visual-deploy.sh
