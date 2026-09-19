@@ -7,6 +7,6 @@ export async function api<T=any>(path:string,body?:unknown,method=body?'POST':'G
 }
 export function haptic(){try{window.Telegram?.WebApp.HapticFeedback?.impactOccurred('light');}catch{/* unsupported client */}}
 export type NodeSpec={id:string;name:string;label:string;memory:string|null;compute:string|null;use:string;image:string;status:string;price:null};
-export type RequestItem={id:string;nodeId:string;profile:string;workload:string;status:string;createdAt:string;user?:{name:string}};
-export type Ticket={id:string;message:string;reply:string|null;user?:{name:string}};
+export type RequestItem={id:string;nodeId:string;profile:string;workload:string;status:string;decision?:string|null;closureReason?:string|null;closedAt?:string|null;createdAt:string;user?:{name:string}};
+export type Ticket={id:string;message:string;reply:string|null;category:string;subject:string;status:string;createdAt:string;updatedAt:string;user?:{name:string}};
 export type Account={user:{id:string;name:string;isOwner:boolean};agreement:{version:string;accepted:boolean;acceptedAt:string|null};balance:string;earnedToday:null;activeNodes:unknown[];requests:RequestItem[];tickets:Ticket[];referrals:number;entries:{id:string;amount:string;kind:string;createdAt:string}[];updatedAt:string};

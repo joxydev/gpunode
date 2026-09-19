@@ -25,6 +25,9 @@ model RentalRequest {
   nodeId String
   profile String
   workload String
+  decision String?
+  closureReason String?
+  closedAt DateTime?
   status String @default("REQUESTED")
   idempotencyKey String
   createdAt DateTime @default(now())
@@ -33,9 +36,13 @@ model RentalRequest {
   @@index([userId, createdAt])
 }
 model Ticket {
+  @@index([status, createdAt])
   id String @id @default(uuid())
   userId String
   user User @relation(fields: [userId], references: [id])
+  category String @default("QUESTION")
+  subject String @default("Обращение")
+  status String @default("OPEN")
   message String
   reply String?
   createdAt DateTime @default(now())

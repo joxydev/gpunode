@@ -36,13 +36,32 @@ try{
  assert.equal((await call('/me',other)).data.requests.length,0);
  assert.equal((await call('/requests',user,{...body,idempotencyKey:randomUUID()})).status,400);
  assert.equal((await call('/admin/requests/'+a.data.id,user,{status:'CLOSED'},'PATCH')).status,403);
- assert.equal((await call('/admin/requests/'+a.data.id,owner,{status:'CLOSED'},'PATCH')).status,200);
+ assert.equal((await call('/admin/requests/'+a.data.id,owner,{status:'CLOSED',decision:'ACCEPTED',closureReason:'Согласовано оператором'},'PATCH')).status,200);
  assert.equal((await call('/requests',other,{...body,nodeId:'quantum'})).status,400);
  assert.equal((await call('/requests',other,{...body,nodeId:'NODE_QBIT',idempotencyKey:randomUUID()})).status,400);
  const managed=await call('/requests',other,{...body,nodeId:'NODE_H100',profile:'ECO',workload:'Ignored client-selected workload',idempotencyKey:randomUUID()});assert.equal(managed.status,201);assert.equal(managed.data.profile,'MANAGED');assert.equal(managed.data.workload,'Распределение мощностей и задач выполняет сервис AetherMind.');
- const ticket=await call('/support',user,{message:'Need help with access'});assert.equal(ticket.status,201);
- assert.equal((await call('/admin/tickets/'+ticket.data.id,owner,{reply:'We received your request'},'PATCH')).status,200);
+ for(const path of ['/admin/requests','/admin/tickets','/admin/audit']){assert.equal((await call(path)).status,401);assert.equal((await call(path,user)).status,403);assert.equal((await call(path,owner)).status,200);}
+ assert.equal((await call('/admin/tickets?status=BAD',owner)).status,400);
+ assert.equal((await call('/admin/audit?page=-1',owner)).status,400);
+ assert.equal((await call('/admin/requests/'+managed.data.id,owner,{status:'CLOSED'},'PATCH')).status,400);
+ const rejection={status:'CLOSED',decision:'REJECTED',closureReason:'Ресурс пока недоступен'};
+ assert.equal((await call('/admin/requests/'+managed.data.id,owner,rejection,'PATCH')).status,200);
+ assert.equal((await call('/admin/requests/'+managed.data.id,owner,rejection,'PATCH')).status,200);
+ assert.equal((await call('/admin/requests/'+managed.data.id,owner,{status:'REVIEWED'},'PATCH')).status,400);
+ assert.equal((await call('/me',other)).data.requests[0].closureReason,rejection.closureReason);
+ assert.equal((await call('/admin/requests/'+randomUUID(),owner,{status:'REVIEWED'},'PATCH')).status,404);
+ assert.equal((await call('/support',user,{message:'hello',category:'INVALID'})).status,400);
+ const ticket=await call('/support',user,{message:'Need help with access',subject:'Access issue',category:'COMPLAINT'});assert.equal(ticket.status,201);assert.equal(ticket.data.status,'OPEN');
+ assert.equal((await call('/me',other)).data.tickets.length,0);
+ assert.equal((await call('/admin/tickets/'+ticket.data.id,other,{reply:'Not allowed'},'PATCH')).status,403);
+ assert.equal((await call('/admin/tickets/'+ticket.data.id,owner,{status:'CLOSED'},'PATCH')).status,400);
+ assert.equal((await call('/admin/tickets/'+ticket.data.id,owner,{reply:'We received your request',status:'ANSWERED'},'PATCH')).status,200);
  assert.equal((await call('/me',user)).data.tickets[0].reply,'We received your request');
+ assert.equal((await call('/admin/tickets?category=COMPLAINT&status=ANSWERED',owner)).data.items[0].id,ticket.data.id);
+ assert.equal((await call('/admin/tickets/'+ticket.data.id,owner,{status:'CLOSED'},'PATCH')).status,200);
+ assert.equal((await call('/admin/tickets/'+randomUUID(),owner,{reply:'Not found'},'PATCH')).status,404);
+ const burst=await Promise.all(Array.from({length:7},()=>call('/support',other,{message:'Concurrent ticket test'})));assert.equal(burst.filter(r=>r.status===201).length,5);assert.equal(burst.filter(r=>r.status===400).length,2);
+ const me=await call('/me',other);assert.equal(me.data.tickets.length,5);
  assert.equal((await call('/payments',user,{})).status,503);assert.equal((await call('/withdrawals',user,{})).status,503);assert.equal((await call('/me',user)).data.balance,'0.000000');
  console.log('Integration checks passed: auth, one-time agreement, ownership, idempotency, workflow, support and payment gates.');
 }finally{child.kill('SIGTERM');}

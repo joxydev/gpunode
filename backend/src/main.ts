@@ -123,19 +123,48 @@ class Api {
   }
   @Post('support') async support(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){
     const userId=await agreed(auth),message=field(body,'message',2000,5);
-    if(await db.ticket.count({where:{userId,createdAt:{gt:new Date(Date.now()-3600000)}}})>=5)throw new BadRequestException('Не более 5 обращений в час.');
-    return db.ticket.create({data:{userId,message}});
+    const category=body.category===undefined?'QUESTION':field(body,'category',16),subject=body.subject===undefined?'Обращение':field(body,'subject',120,3);
+    if(!['QUESTION','COMPLAINT'].includes(category))throw new BadRequestException('Выберите тип обращения.');
+    return db.$transaction(async tx=>{
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${userId}, 31))`;
+      if(await tx.ticket.count({where:{userId,createdAt:{gt:new Date(Date.now()-3600000)}}})>=5)throw new BadRequestException('Не более 5 обращений в час.');
+      const result=await tx.ticket.create({data:{userId,message,category,subject}});
+      await tx.audit.create({data:{actorId:userId,action:'SUPPORT_CREATED',targetId:result.id}});return result;
+    });
   }
   @Post('payments') async payment(@Headers('authorization') auth:string){await agreed(auth);throw new ServiceUnavailableException('Приём оплаты не подключён. Не переводите деньги по сторонним реквизитам.');}
   @Post('withdrawals') async withdrawal(@Headers('authorization') auth:string){await agreed(auth);throw new ServiceUnavailableException('Вывод не подключён. Баланс не изменён.');}
-  @Get('admin') async admin(@Headers('authorization') auth:string){await agreedOwner(auth);const [users,requests,tickets,audit]=await Promise.all([db.user.count(),db.rentalRequest.findMany({orderBy:{createdAt:'desc'},take:100,include:{user:{select:{name:true}}}}),db.ticket.findMany({orderBy:{createdAt:'desc'},take:100,include:{user:{select:{name:true}}}}),db.audit.findMany({orderBy:{createdAt:'desc'},take:100})]);return {users,requests,tickets,audit};}
+  @Get('admin') async admin(@Headers('authorization') auth:string){await agreedOwner(auth);const [users,requests,tickets]=await Promise.all([db.user.count(),db.rentalRequest.count({where:{status:{in:['REQUESTED','REVIEWED']}}}),db.ticket.count({where:{status:{in:['OPEN','IN_PROGRESS']}}})]);return {users,openRequests:requests,openTickets:tickets};}
+  @Get('admin/requests') async requests(@Headers('authorization') auth:string,@QueryParam('page') page?:string){await agreedOwner(auth);const skip=this.offset(page);return {items:await db.rentalRequest.findMany({orderBy:[{createdAt:'desc'},{id:'desc'}],skip,take:30,include:{user:{select:{name:true}}}})};}
+  @Get('admin/tickets') async tickets(@Headers('authorization') auth:string,@QueryParam('page') page?:string,@QueryParam('status') status?:string,@QueryParam('category') category?:string){
+    await agreedOwner(auth);const skip=this.offset(page);
+    if(status&&!['OPEN','IN_PROGRESS','ANSWERED','CLOSED'].includes(status))throw new BadRequestException();
+    if(category&&!['QUESTION','COMPLAINT'].includes(category))throw new BadRequestException();
+    return {items:await db.ticket.findMany({where:{...(status?{status}:{}),...(category?{category}:{})},orderBy:[{createdAt:'desc'},{id:'desc'}],skip,take:30,include:{user:{select:{name:true}}}})};
+  }
+  @Get('admin/audit') async audit(@Headers('authorization') auth:string,@QueryParam('page') page?:string){await agreedOwner(auth);return {items:await db.audit.findMany({orderBy:[{createdAt:'desc'},{id:'desc'}],skip:this.offset(page),take:30})};}
+  private offset(page?:string){if(page!==undefined&&!/^[0-9]{1,5}$/.test(page))throw new BadRequestException();return Number(page||0)*30;}
   @Patch('admin/requests/:id') async review(@Headers('authorization') auth:string,@Param('id') target:string,@Body() body:Record<string,unknown>){
     const actorId=await agreedOwner(auth),id=uuid(target),status=field(body,'status',20);if(!['REVIEWED','CLOSED'].includes(status))throw new BadRequestException();
-    return db.$transaction(async tx=>{const result=await tx.rentalRequest.update({where:{id},data:{status}});await tx.audit.create({data:{actorId,action:`REQUEST_${status}`,targetId:id}});return result;});
+    const decision=status==='CLOSED'?field(body,'decision',16):null,closureReason=status==='CLOSED'?field(body,'closureReason',1000,3):null;
+    if(decision&&!['ACCEPTED','REJECTED'].includes(decision))throw new BadRequestException('Выберите принятие или отказ.');
+    return db.$transaction(async tx=>{
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${id}, 32))`;
+      const current=await tx.rentalRequest.findUnique({where:{id}});if(!current)throw new NotFoundException();
+      if(current.status==='CLOSED'){if(status==='CLOSED'&&current.decision===decision&&current.closureReason===closureReason)return current;throw new BadRequestException('Заявка уже закрыта.');}
+      const result=await tx.rentalRequest.update({where:{id},data:{status,decision,closureReason,closedAt:status==='CLOSED'?new Date():null}});await tx.audit.create({data:{actorId,action:`REQUEST_${decision||status}`,targetId:id}});return result;
+    });
   }
   @Patch('admin/tickets/:id') async reply(@Headers('authorization') auth:string,@Param('id') target:string,@Body() body:Record<string,unknown>){
-    const actorId=await agreedOwner(auth),id=uuid(target),reply=field(body,'reply',2000,2);
-    return db.$transaction(async tx=>{const result=await tx.ticket.update({where:{id},data:{reply}});await tx.audit.create({data:{actorId,action:'SUPPORT_REPLY',targetId:id}});return result;});
+    const actorId=await agreedOwner(auth),id=uuid(target),status=body.status===undefined?'ANSWERED':field(body,'status',20);
+    if(!['OPEN','IN_PROGRESS','ANSWERED','CLOSED'].includes(status))throw new BadRequestException();
+    const reply=body.reply===undefined?undefined:field(body,'reply',2000,2);
+    return db.$transaction(async tx=>{
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${id}, 33))`;
+      const current=await tx.ticket.findUnique({where:{id}});if(!current)throw new NotFoundException();
+      if(['ANSWERED','CLOSED'].includes(status)&&!(reply||current.reply))throw new BadRequestException('Добавьте ответ пользователю перед закрытием.');
+      const result=await tx.ticket.update({where:{id},data:{reply,status}});await tx.audit.create({data:{actorId,action:`SUPPORT_${status}`,targetId:id}});return result;
+    });
   }
 }
 @Module({controllers:[Api]}) class AppModule{}
