@@ -1,3 +1,4 @@
+import {useAmbientMotion} from './motion';
 import CoreVisual from './CoreVisual';
 import OwnerPanel from './OwnerPanel';
 import SupportPanel from './SupportPanel';
@@ -14,6 +15,7 @@ const stateLabel:Record<string,string>={REQUESTED:'Ожидает рассмот
 function Counter({value}:{value:string}){const ref=useRef<HTMLSpanElement>(null);useEffect(()=>{if(ref.current){const n=new CountUp(ref.current,Number(value),{decimalPlaces:2,duration:0.65,useEasing:true});if(matchMedia('(prefers-reduced-motion: reduce)').matches)ref.current.textContent=Number(value).toFixed(2);else n.start();return()=>n.reset();}},[value]);return <span ref={ref}>{Number(value).toFixed(2)}</span>}
 function Splash(){const el=useRef<HTMLDivElement>(null);useEffect(()=>{if(!el.current||matchMedia('(prefers-reduced-motion: reduce)').matches)return;const anim=lottie.loadAnimation({container:el.current,renderer:'svg',loop:true,autoplay:true,path:'/assets/splash.json'});return()=>anim.destroy();},[]);return <div className="splash"><div ref={el} className="splash-ring"/><img src="/assets/core.webp" alt="Нейронное ядро"/><p>Соединяем с AetherMind…</p></div>}
 export default function App(){
+ useAmbientMotion();
  const [tab,setTab]=useState('dashboard'),[entered,setEntered]=useState(false),[nodes,setNodes]=useState<NodeSpec[]>([]),[bot,setBot]=useState(''),[account,setAccount]=useState<Account|null>(null),[loading,setLoading]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[modal,setModal]=useState(''),[selected,setSelected]=useState<NodeSpec|null>(null),[saving,setSaving]=useState(false),[accepting,setAccepting]=useState(false);
  const inTelegram=Boolean(window.Telegram?.WebApp.initData);const returnModal=useRef('');
  const key=useRef(crypto.randomUUID());const modalRef=useRef<HTMLDivElement>(null);
