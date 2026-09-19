@@ -1,13 +1,28 @@
 import {useEffect,useState} from 'react';
-const KEY='aethermind.motion',EVENT='aethermind:motion';
-let volatilePause:boolean|undefined;
-function readPaused(){if(volatilePause!==undefined)return volatilePause;try{return localStorage.getItem(KEY)==='paused'}catch{return false}}
-export function useMotionPreference(){
- const [paused,setPaused]=useState(readPaused);
- useEffect(()=>{const sync=()=>setPaused(readPaused());const storage=(event:StorageEvent)=>{if(event.key===KEY||event.key===null){volatilePause=undefined;sync()}};window.addEventListener(EVENT,sync);window.addEventListener('storage',storage);return()=>{window.removeEventListener(EVENT,sync);window.removeEventListener('storage',storage)}},[]);
- return {paused,toggle(){const value=!readPaused();volatilePause=value;try{localStorage.setItem(KEY,value?'paused':'running')}catch{}window.dispatchEvent(new Event(EVENT))}};
+
+function telegramActive(){
+ const webApp=window.Telegram?.WebApp;
+ if(typeof webApp?.isActive==='boolean')return webApp.isActive;
+ return document.visibilityState!=='hidden';
 }
+
+/** Telegram 8+ exposes isActive and activated/deactivated. Older clients use Page Visibility. */
+export function useAppActive(){
+ const [active,setActive]=useState(telegramActive);
+ useEffect(()=>{
+  const webApp=window.Telegram?.WebApp;
+  const activate=()=>setActive(true),deactivate=()=>setActive(false);
+  const visibility=()=>{if(typeof webApp?.isActive!=='boolean')setActive(document.visibilityState!=='hidden')};
+  webApp?.onEvent?.('activated',activate);webApp?.onEvent?.('deactivated',deactivate);
+  window.addEventListener('pageshow',activate);window.addEventListener('pagehide',deactivate);document.addEventListener('visibilitychange',visibility);
+  // A saved pause from the previous implementation must not freeze Telegram WebView.
+  try{localStorage.removeItem('aethermind.motion')}catch{}
+  return()=>{webApp?.offEvent?.('activated',activate);webApp?.offEvent?.('deactivated',deactivate);window.removeEventListener('pageshow',activate);window.removeEventListener('pagehide',deactivate);document.removeEventListener('visibilitychange',visibility)};
+ },[]);
+ return active;
+}
+
 export function useAmbientMotion(){
- const {paused}=useMotionPreference();
- useEffect(()=>{const sync=()=>{document.documentElement.dataset.ambientMotion=paused||document.hidden?'paused':'running'};sync();document.addEventListener('visibilitychange',sync);return()=>document.removeEventListener('visibilitychange',sync)},[paused]);
+ const active=useAppActive();
+ useEffect(()=>{document.documentElement.dataset.ambientMotion=active?'running':'paused';return()=>{delete document.documentElement.dataset.ambientMotion}},[active]);
 }

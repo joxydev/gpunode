@@ -1,12 +1,13 @@
 /* Fixed source + local light. No scale, translation or full-image brightness changes. */
-.core-visual.stellar-visual{height:auto;min-height:280px;padding-bottom:38px;overflow:hidden}
+.core-visual.stellar-visual{height:auto;min-height:280px;padding-bottom:25px;overflow:hidden}
 .stellar-scene{position:relative;width:min(100%,320px);aspect-ratio:1;margin:0 auto;isolation:isolate;pointer-events:none}
-.stellar-sky,.stellar-dimmer,.stellar-light{position:absolute;inset:0;pointer-events:none;transform:none}
+.stellar-sky,.stellar-dimmer,.stellar-light,.stellar-flare{position:absolute;inset:0;pointer-events:none;transform:none}
 .stellar-sky{background:url('/assets/core.webp') center/100% 100% no-repeat}
-.stellar-dimmer{background:radial-gradient(circle at 50% 50%,#030611 0%,rgba(3,6,17,.94) 9%,rgba(3,6,17,.62) 13%,transparent 19%);opacity:.72;will-change:opacity}
-.stellar-light{background:radial-gradient(circle at 50% 50%,rgba(208,255,255,.85) 0%,rgba(0,240,255,.35) 7%,rgba(157,0,255,.12) 12%,transparent 18%);opacity:.02;will-change:opacity}
-.stellar-visual .core-caption{bottom:21px;left:0;right:0;font-size:8px;letter-spacing:2px}
-.stellar-visual .motion-toggle{bottom:0;right:8px;font-size:10px;padding:4px 9px}
+.stellar-dimmer{background:radial-gradient(circle at 50% 50%,#02040d 0 5%,rgba(2,4,13,.98) 8%,rgba(2,4,13,.82) 13%,rgba(2,4,13,.2) 18%,transparent 22%);opacity:.9;will-change:opacity}
+.stellar-light{background:radial-gradient(circle at 50% 50%,#efffff 0 1.2%,rgba(65,247,255,.92) 3.5%,rgba(0,240,255,.42) 8%,rgba(157,0,255,.2) 13%,transparent 21%);mix-blend-mode:screen;opacity:.08;will-change:opacity}
+.stellar-flare{inset:30%;background:linear-gradient(90deg,transparent 4%,rgba(0,240,255,.05) 43%,rgba(235,255,255,.86) 50%,rgba(157,0,255,.06) 57%,transparent 96%),linear-gradient(0deg,transparent 4%,rgba(157,0,255,.04) 43%,rgba(235,255,255,.72) 50%,rgba(0,240,255,.05) 57%,transparent 96%);mix-blend-mode:screen;mask-image:radial-gradient(circle,#000 0 7%,rgba(0,0,0,.78) 20%,transparent 68%);opacity:.04;will-change:opacity}
+.stellar-visual .core-caption{bottom:3px;left:0;right:0;font-size:8px;letter-spacing:2px;display:flex;align-items:center;justify-content:center;gap:7px}
+.stellar-visual .core-caption i{width:5px;height:5px;border-radius:50%;background:#00f0ff;box-shadow:0 0 8px #00f0ff}
 /* Very low-opacity illumination. Labels, geometry and interaction states remain stable. */
 .app-shell .primary{position:relative;isolation:isolate}
 .app-shell .primary:not(:disabled):not([aria-disabled=true])::after{content:'';position:absolute;inset:0;border-radius:inherit;background:linear-gradient(125deg,transparent 15%,#ffffff 50%,transparent 85%);opacity:.02;pointer-events:none;transform:none;animation:button-light 8.6s ease-in-out infinite}
