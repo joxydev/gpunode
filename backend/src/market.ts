@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 export type Query = <T = Record<string, any>>(sql:string, params?:unknown[]) => Promise<T[]>;
-export type CatalogRow = {id:string;name:string;category:string;tier_level:number;chip:string;precision_label:string;workload:string;price_usdt:string;daily_yield_percent:string;tflops_power:number;total_supply:number;available_supply:number;supply_known:boolean;contract_days:number;max_per_user:number;image_url:string;is_active:boolean;is_experimental:boolean;contract_reference:string|null};
-export const MARKET_VERSION='market-v1';
+export type CatalogRow = {id:string;name:string;category:string;tier_level:number;chip:string;precision_label:string;workload:string;price_usdt:string;daily_yield_percent:string;compound_boost_percent:string|null;tflops_power:number;total_supply:number;available_supply:number;supply_known:boolean;contract_days:number;max_per_user:number;image_url:string;is_active:boolean;is_experimental:boolean;contract_reference:string|null};
+export const MARKET_VERSION='offer-88-2026-ai';
 // This release accepts requests. Contract approval, provisioning and settlement ship separately.
 export const PURCHASES_ENABLED=false;
 export function scaled(value:string,places:number):bigint {
@@ -18,17 +18,17 @@ export function fixed(value:bigint,places:number):string {
 export function present(row:CatalogRow) {
   const priceCents=scaled(String(row.price_usdt),2),rateBps=scaled(String(row.daily_yield_percent),2);
   const dailyMicros=priceCents*rateBps;
-  const availability=row.is_experimental?'CONCEPT':!row.supply_known?'AWAITING_POOL':row.available_supply===0?'SOLD_OUT':row.available_supply/row.total_supply<=.2?'LIMITED':'AVAILABLE';
+  const availability=row.is_experimental?'CONCEPT':'AVAILABLE';
   return {id:row.id,name:row.name,category:row.category,tier:row.tier_level,chip:row.chip,precision:row.precision_label,workload:row.workload,
-    priceUsdt:fixed(priceCents,2),dailyPercent:fixed(rateBps,2),dailyUsdt:fixed(dailyMicros,6),aprPercent:fixed(rateBps*365n,2),
-    termYieldUsdt:fixed(dailyMicros*BigInt(row.contract_days),6),tflops:row.tflops_power,contractDays:row.contract_days,maxPerUser:row.max_per_user,
-    totalSupply:row.supply_known?row.total_supply:null,availableSupply:row.supply_known?row.available_supply:null,
-    remainingPercent:row.supply_known?(row.total_supply?Math.round(100*row.available_supply/row.total_supply):0):null,
-    availability,image:row.image_url,experimental:row.is_experimental,termsStatus:'DRAFT',canBuy:false,canRequest:!row.is_experimental&&availability!=='SOLD_OUT'};
+    priceUsdt:fixed(priceCents,2),dailyPercent:row.is_experimental?null:fixed(rateBps,2),dailyUsdt:row.is_experimental?null:fixed(dailyMicros,6),
+    compoundPercent:row.is_experimental||row.compound_boost_percent===null?null:fixed(scaled(String(row.compound_boost_percent),2),2),
+    termPercent:row.is_experimental?null:fixed(rateBps*BigInt(row.contract_days),2),
+    termYieldUsdt:row.is_experimental?null:fixed(dailyMicros*BigInt(row.contract_days),6),tflops:row.tflops_power,contractDays:row.contract_days,
+    availability,image:row.image_url,experimental:row.is_experimental,termsStatus:'PUBLIC_OFFER',canBuy:false,canSelect:!row.is_experimental};
 }
 export function catalogueQuery(category='ALL',sort='tier_asc') {
   if(!['ALL','CONSUMER','ENTERPRISE','QUANTUM'].includes(category))throw Error('Некорректная категория.');
-  const sorts:Record<string,string>={tier_asc:'tier_level ASC',tier_desc:'tier_level DESC',price_asc:'price_usdt ASC',price_desc:'price_usdt DESC',apr_desc:'daily_yield_percent DESC',apr_asc:'daily_yield_percent ASC'};
+  const sorts:Record<string,string>={tier_asc:'tier_level ASC',tier_desc:'tier_level DESC',price_asc:'price_usdt ASC',price_desc:'price_usdt DESC',yield_desc:'daily_yield_percent DESC',yield_asc:'daily_yield_percent ASC',apr_desc:'daily_yield_percent DESC',apr_asc:'daily_yield_percent ASC'};
   if(!Object.hasOwn(sorts,sort))throw Error('Некорректная сортировка.');
   return {sql:`SELECT * FROM gpu_catalog WHERE is_active = TRUE ${category==='ALL'?'':'AND category = $1'} ORDER BY ${sorts[sort]}, id ASC`,params:category==='ALL'?[]:[category]};
 }

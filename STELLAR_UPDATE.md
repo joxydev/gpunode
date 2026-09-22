@@ -1,5 +1,7 @@
 # Stationary core lighting — 2026-09-19
 
+> Историческая заметка. Telegram lifecycle и восстановление анимации дополнены в `WEBVIEW_PULSE_UPDATE.md`; условия продукта теперь определяет оферта № 88/2026-AI.
+
 Original core.webp is unchanged. The background, glass frame and central core remain fixed in size and position. Two radial layers affect only the central sphere: soft local dimming and a faint cyan/violet highlight. Only opacity changes, never source-image scale, translation or brightness.
 
 The light follows smooth overlapping 6.8 and 11.3 second waves, throttled to ~30 paints/second with requestAnimationFrame and a persistent phase. It stops offscreen, in hidden tabs and on manual pause; time does not jump on resume. System reduced motion reduces the brightness range. One persisted pause setting also pauses ambient interface lighting.

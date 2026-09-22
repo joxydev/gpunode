@@ -14,13 +14,11 @@ test('market migration, exact arithmetic and ACID reservation groundwork',async(
   const q:Query=async(sql,params)=>(await db.query(sql,params)).rows as any;
   const rows=await q<CatalogRow>('SELECT * FROM gpu_catalog ORDER BY tier_level');
   assert.equal(rows.length,4);assert.equal((await q('SELECT * FROM "LedgerEntry"')).length,1,'existing money retained');
-  const daily=['1.750000','15.000000','78.000000','425.000000'];
-  rows.forEach((r,i)=>{assert.equal(present(r).dailyUsdt,daily[i]);assert.equal(present(r).remainingPercent,null);assert.equal(present(r).canBuy,false);});
-  assert.equal(present(rows[0]).aprPercent,'1277.50');assert.equal(present(rows[3]).availability,'CONCEPT');
-  assert.equal(present({...rows[0],supply_known:true,total_supply:200,available_supply:42}).remainingPercent,21);
-  assert.equal(present({...rows[0],supply_known:true,total_supply:200,available_supply:40}).availability,'LIMITED');
-  assert.equal(present({...rows[0],supply_known:true,total_supply:200,available_supply:0}).availability,'SOLD_OUT');
-  assert.equal(present({...rows[0],supply_known:true,total_supply:200,available_supply:180}).availability,'AVAILABLE');
+  await db.exec(readFileSync(new URL('../prisma/migrations/202609220001_public_offer/migration.sql',import.meta.url),'utf8'));
+  const offerRows=await q<CatalogRow>('SELECT * FROM gpu_catalog ORDER BY tier_level');
+  const daily=['0.750000','7.500000','42.000000',null];
+  offerRows.forEach((r,i)=>{assert.equal(present(r).dailyUsdt,daily[i]);assert.equal(present(r).canBuy,false);});
+  assert.equal(present(offerRows[0]).compoundPercent,'1.80');assert.equal(present(offerRows[0]).termPercent,'45.00');assert.equal(present(offerRows[3]).availability,'CONCEPT');assert.equal(present(offerRows[3]).canSelect,false);
   assert.throws(()=>catalogueQuery('ALL','price; DROP TABLE "User"'));
   const sorted=catalogueQuery('ENTERPRISE','price_desc');assert.equal((await q<CatalogRow>(sorted.sql,sorted.params))[0].id,'NODE_H100');
   assert.equal(fixed(scaled('123.45',2),2),'123.45');assert.throws(()=>scaled('1.001',2));
@@ -29,7 +27,7 @@ test('market migration, exact arithmetic and ACID reservation groundwork',async(
   await assert.rejects(reserve('NODE_4090',randomUUID()),/CONTRACTS_NOT_CONNECTED/);
   await db.exec("UPDATE gpu_catalog SET supply_known=TRUE,total_supply=2,available_supply=2,contract_reference='TEST-CONTRACT-ONLY',max_per_user=1 WHERE id='NODE_4090'");
   const key=randomUUID(),lease=await reserve('NODE_4090',key);
-  assert.equal(lease.status,'PROVISIONING');assert.equal(lease.daily_yield_usdt,'1.7500');
+  assert.equal(lease.status,'PROVISIONING');assert.equal(lease.daily_yield_usdt,'0.7500');
   assert.equal((await reserve('NODE_4090',key)).id,lease.id,'retry does not charge twice');
   await assert.rejects(reserve('NODE_A100',key),/IDEMPOTENCY_CONFLICT/);
   await assert.rejects(reserve('NODE_4090',randomUUID()),/USER_LIMIT/);
