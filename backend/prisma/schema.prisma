@@ -33,12 +33,14 @@ model RentalRequest {
   decision String?
   closureReason String?
   closedAt DateTime?
+  paymentStatus String @default("WAITING")
   status String @default("REQUESTED")
   idempotencyKey String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@unique([userId, idempotencyKey])
   @@index([userId, createdAt])
+  @@index([paymentStatus, status, createdAt])
 }
 model Ticket {
   @@index([status, createdAt])
@@ -50,9 +52,26 @@ model Ticket {
   status String @default("OPEN")
   message String
   reply String?
+  ownerUnread Boolean @default(true)
+  userUnread Boolean @default(false)
+  lastMessageAt DateTime @default(now())
+  closedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  messages TicketMessage[]
   @@index([userId, createdAt])
+  @@index([status, lastMessageAt])
+}
+model TicketMessage {
+  id String @id @default(uuid()) @db.Uuid
+  ticketId String @map("ticket_id")
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorType String @map("author_type")
+  authorId String @map("author_id")
+  body String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  @@index([ticketId, createdAt, id])
+  @@map("ticket_messages")
 }
 model LedgerEntry {
   id String @id @default(uuid())

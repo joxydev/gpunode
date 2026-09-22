@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Atomic update of the existing AetherMind VPS installation.
+# Atomic deployment of the AetherMind owner control center.
 # shellcheck disable=SC2016
 set -Eeuo pipefail
 umask 077
@@ -42,8 +42,8 @@ node_path=$(dirname "$node_bin")
 export PATH="$node_path:$PATH"
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
-backup="/srv/backups/gpunode/offer88-$stamp"
-release="/srv/releases/gpunode/$stamp-${sha:0:12}-offer88"
+backup="/srv/backups/gpunode/owner-center-$stamp"
+release="/srv/releases/gpunode/$stamp-${sha:0:12}-owner-center"
 [[ ! -e $release && ! -e $backup ]] || fail 'Каталог этого релиза уже существует.'
 install -d -m 0700 "$backup"
 install -d -m 0755 -o deploy -g deploy "$release"
@@ -55,8 +55,8 @@ rollback(){
   set +e
   if ((activated)); then
     systemctl stop gpunode.service
-    ln -sfn "$previous" "$root/current-offer88-rollback"
-    mv -Tf "$root/current-offer88-rollback" "$root/current"
+    ln -sfn "$previous" "$root/current-owner-center-rollback"
+    mv -Tf "$root/current-owner-center-rollback" "$root/current"
     cp -a "$backup/gpunode.service" "$service"
     systemctl daemon-reload
     systemctl start gpunode.service
@@ -86,9 +86,9 @@ with tarfile.open(source, 'r:gz') as bundle:
         bundle.extract(member, path=target, filter='data')
 PY
 
-[[ -f $release/.aethermind-project && -f $release/docs/OFFER_IMPLEMENTATION.md ]] || fail 'В архиве нет обновления оферты.'
+[[ -f $release/.aethermind-project && -f $release/docs/OFFER_IMPLEMENTATION.md && -f $release/docs/OWNER_CONTROL_CENTER.md ]] || fail 'В архиве нет документации панели владельца.'
 [[ -f $release/backend/src/offer.ts && -f $release/frontend/src/Offer.tsx && -f $release/frontend/src/Profile.tsx && -f $release/frontend/src/Referrals.tsx ]] || fail 'Неполный исходный код обновления.'
-[[ -f $release/backend/prisma/migrations/202609220001_public_offer/migration.sql && -f $release/ops/vps-ci.py ]] || fail 'Нет миграции или VPS CI.'
+[[ -f $release/backend/prisma/migrations/202609220001_public_offer/migration.sql && -f $release/backend/prisma/migrations/202609220002_owner_center/migration.sql && -f $release/ops/vps-ci.py ]] || fail 'Нет миграции панели владельца или VPS CI.'
 printf '%s  %s\n' 'b21177972dbdeedbea731e826b070ff7fb148ec1f96e7892536e67e40732ce88' "$release/frontend/public/documents/public-offer-aethermind.pdf" | sha256sum --check --status || fail 'PDF оферты отличается от утверждённого документа.'
 printf '%s  %s\n' '7678c55b371736e130bc52f5e401d7d9d33288ad6284ae2dcb7097d25ecdeca3' "$release/frontend/public/documents/user-agreement-aethermind.pdf" | sha256sum --check --status || fail 'Пользовательское соглашение повреждено.'
 printf '%s\n' "$sha" > "$release/DEPLOYED_COMMIT"
@@ -116,6 +116,9 @@ npm test
 npm run build
 grep -Rqs 'Этапы участия' frontend/dist/assets/*.js
 grep -Rqs 'Партнёры' frontend/dist/assets/*.js
+grep -Rqs 'Управление AetherMind' frontend/dist/assets/*.js
+grep -Rqs 'Кого пригласил пользователь' frontend/dist/assets/*.js
+grep -Rqs 'Создать тикет' frontend/dist/assets/*.js
 BUILD
 
 find "$release/frontend/dist" -type d -exec chmod 0755 {} +
@@ -153,8 +156,8 @@ if count != 1:
 path.write_text(result)
 PY
 chmod 0644 "$service"
-ln -sfn "$release" "$root/current-offer88-next"
-mv -Tf "$root/current-offer88-next" "$root/current"
+ln -sfn "$release" "$root/current-owner-center-next"
+mv -Tf "$root/current-owner-center-next" "$root/current"
 systemctl daemon-reload
 systemctl restart gpunode.service
 
@@ -197,10 +200,12 @@ profile_marker=0
 for asset in "${assets[@]}"; do
   target="$backup/$(basename "$asset")"
   curl "${web[@]}" "https://31.77.226.26$asset" -o "$target"
-  if [[ $asset == *.js ]] && grep -q 'Этапы участия' "$target"; then profile_marker=1; fi
+  if [[ $asset == *.js ]] && grep -q 'Управление AetherMind' "$target" && grep -q 'Кого пригласил пользователь' "$target"; then profile_marker=1; fi
 done
 ((profile_marker)) || fail 'HTTPS отдал старый JavaScript.'
 [[ $(curl -sS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 -o /dev/null -w '%{http_code}' -X POST https://31.77.226.26/api/profile/tariff) == 401 ]]
+[[ $(curl -sS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 -o /dev/null -w '%{http_code}' https://31.77.226.26/api/admin/users) == 401 ]]
+[[ $(curl -sS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 -o /dev/null -w '%{http_code}' https://31.77.226.26/api/admin/tickets) == 401 ]]
 systemctl is-active --quiet gpunode.service
 systemctl is-active --quiet gpu-cert-renew.timer
 
@@ -215,4 +220,4 @@ PY
 python3 "$release/ops/bot-config.py"
 
 trap - ERR INT TERM
-printf '\nГОТОВО: https://31.77.226.26/\nОферта: № 88/2026-AI\nКоммит: %s\nБэкап: %s\nПлатежи и начисления остаются выключенными. Полностью закройте и заново откройте Mini App.\n' "$sha" "$backup"
+printf '\nГОТОВО: https://31.77.226.26/\nПанель владельца и тикет-чаты активированы.\nКоммит: %s\nБэкап: %s\nПлатежи и начисления остаются выключенными. Полностью закройте и заново откройте Mini App.\n' "$sha" "$backup"

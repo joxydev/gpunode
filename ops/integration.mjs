@@ -2,6 +2,7 @@
 import {spawn} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
 import assert from 'node:assert/strict';
+import pg from 'pg';
 
 if(process.env.CI_INTEGRATION!=='1'||new URL(process.env.DATABASE_URL).pathname!=='/aethermind_ci')throw Error('Refusing to run integration tests against non-CI database');
 const port=process.env.CI_PORT||'3100';
@@ -39,18 +40,36 @@ try{
  const refBefore=(await call('/me',user)).data.referrals;assert.equal(refBefore.total,1);assert.equal(refBefore.items[0].stage,'OFFER_ACCEPTED');assert.equal(refBefore.rewardConfigured,false);assert.ok(!JSON.stringify(refBefore).includes('44444'));
  await call('/profile/tariff',referred,{nodeId:'NODE_A100'});assert.equal((await call('/me',user)).data.referrals.items[0].stage,'TARIFF_SELECTED');
 
- assert.equal((await call('/admin',user)).status,403);assert.equal((await call('/admin',owner)).status,200);
+ const fixture=new pg.Client({connectionString:process.env.DATABASE_URL});await fixture.connect();
+ await fixture.query('INSERT INTO "LedgerEntry"(id,"userId","amountMicros",kind,"sourceId") VALUES ($1,$2,$3,$4,$5)',[randomUUID(),'22222','12000000','DEPOSIT_CONFIRMED','ci-deposit-'+randomUUID()]);
+ await fixture.end();
+
+ assert.equal((await call('/admin',user)).status,403);const adminSummary=await call('/admin',owner);assert.equal(adminSummary.status,200);assert.equal(adminSummary.data.confirmedDeposits,'12.000000');
+ assert.equal((await call('/admin/users',user)).status,403);assert.equal((await call('/admin/users/not-an-id',owner)).status,400);
+ const users=await call('/admin/users?q=22222',owner);assert.equal(users.status,200);assert.equal(users.data.total,1);assert.equal(users.data.items[0].invitedCount,1);assert.equal(users.data.items[0].deposited,'12.000000');assert.equal(users.data.items[0].balance,'12.000000');
+ const userDetails=await call('/admin/users/22222',owner);assert.equal(userDetails.status,200);assert.equal(userDetails.data.statistics.invitedCount,1);assert.equal(userDetails.data.referrals.total,1);assert.equal(userDetails.data.invited[0].id,'44444');assert.equal(userDetails.data.statistics.deposited,'12.000000');assert.equal(userDetails.data.selectedTariff.name,'Node Alpha');
  const body={nodeId:'NODE_4090',idempotencyKey:randomUUID()};const [a,b]=await Promise.all([call('/requests',user,body),call('/requests',user,body)]);assert.equal(a.status,201);assert.equal(b.status,201);assert.equal(a.data.id,b.data.id);assert.equal(a.data.profile,'MANAGED');
  assert.equal((await call('/requests',user,{...body,idempotencyKey:randomUUID()})).status,400);
+ const pendingRequest=await call('/admin/requests?payment=WAITING',owner);assert.equal(pendingRequest.status,200);assert.equal(pendingRequest.data.items[0].paymentStatus,'WAITING');assert.equal(pendingRequest.data.items[0].equipment.name,'Node Alpha');assert.equal(pendingRequest.data.items[0].user.id,'22222');
+ assert.equal((await call('/admin/requests?payment=INVALID',owner)).status,400);
  assert.equal((await call('/admin/requests/'+a.data.id,user,{status:'CLOSED'},'PATCH')).status,403);
  assert.equal((await call('/admin/requests/'+a.data.id,owner,{status:'CLOSED',decision:'ACCEPTED',closureReason:'Согласовано оператором'},'PATCH')).status,200);
  assert.equal((await call('/admin/requests/'+a.data.id,owner,{status:'REVIEWED'},'PATCH')).status,400);
- for(const path of ['/admin/requests','/admin/tickets','/admin/audit']){assert.equal((await call(path)).status,401);assert.equal((await call(path,user)).status,403);assert.equal((await call(path,owner)).status,200)}
+ for(const path of ['/admin/users','/admin/requests','/admin/tickets','/admin/audit']){assert.equal((await call(path)).status,401);assert.equal((await call(path,user)).status,403);assert.equal((await call(path,owner)).status,200)}
  assert.equal((await call('/admin/tickets?status=INVALID',owner)).status,400);assert.equal((await call('/admin/audit?page=-1',owner)).status,400);
  const browser=await call('/auth/browser/start',null,{});assert.equal(browser.status,201);assert.match(browser.data.url,/^https:\/\/t.me\/aethermind_ci_bot\?start=login_/);assert.equal((await call('/auth/browser/poll',null,{id:browser.data.id,secret:browser.data.secret})).data.status,'PENDING');assert.equal((await call('/auth/browser/poll',null,{id:browser.data.id,secret:'0'.repeat(64)})).data.status,'EXPIRED');
  assert.equal((await call('/telegram/webhook',null,{update_id:9876,callback_query:{data:'bl:y:'+browser.data.id}})).status,401);
- assert.equal((await call('/support',user,{message:'hello',category:'INVALID'})).status,400);const ticket=await call('/support',user,{message:'Need help with access',subject:'Access issue',category:'COMPLAINT'});assert.equal(ticket.status,201);assert.equal((await call('/admin/tickets/'+ticket.data.id,other,{reply:'Not allowed'},'PATCH')).status,403);assert.equal((await call('/admin/tickets/'+ticket.data.id,owner,{status:'CLOSED'},'PATCH')).status,400);assert.equal((await call('/admin/tickets/'+ticket.data.id,owner,{reply:'We received your request',status:'ANSWERED'},'PATCH')).status,200);assert.equal((await call('/me',user)).data.tickets[0].reply,'We received your request');
+ assert.equal((await call('/support',user,{message:'hello',category:'INVALID'})).status,400);const ticket=await call('/support',user,{message:'Need help with access',subject:'Access issue',category:'COMPLAINT'});assert.equal(ticket.status,201);
+ const userThread=await call('/support/'+ticket.data.id,user);assert.equal(userThread.status,200);assert.equal(userThread.data.messages.length,1);assert.equal(userThread.data.messages[0].authorType,'USER');
+ const ownerTickets=await call('/admin/tickets',owner);assert.equal(ownerTickets.data.items[0].ownerUnread,true);assert.equal(ownerTickets.data.items[0].messages[0].body,'Need help with access');
+ assert.equal((await call('/admin/tickets/'+ticket.data.id,other)).status,403);assert.equal((await call('/admin/tickets/'+ticket.data.id+'/messages',other,{message:'Not allowed'})).status,403);assert.equal((await call('/admin/tickets/'+ticket.data.id,owner,{status:'CLOSED'},'PATCH')).status,400);
+ assert.equal((await call('/admin/tickets/'+ticket.data.id+'/read',owner,{})).status,201);assert.equal((await call('/admin/tickets/'+ticket.data.id+'/messages',owner,{message:'We received your request'})).status,201);
+ const afterReply=await call('/me',user);assert.equal(afterReply.data.notifications.unreadSupport,1);assert.equal(afterReply.data.tickets[0].messages[0].body,'We received your request');
+ assert.equal((await call('/support/'+ticket.data.id+'/read',user,{})).status,201);assert.equal((await call('/me',user)).data.notifications.unreadSupport,0);
+ assert.equal((await call('/support/'+ticket.data.id+'/messages',user,{message:'Additional information'})).status,201);assert.equal((await call('/admin/tickets',owner)).data.items[0].ownerUnread,true);
+ assert.equal((await call('/admin/tickets/'+ticket.data.id,owner,{status:'IN_PROGRESS'},'PATCH')).status,200);assert.equal((await call('/admin/tickets/'+ticket.data.id,owner,{status:'CLOSED'},'PATCH')).status,200);assert.equal((await call('/support/'+ticket.data.id+'/messages',user,{message:'Too late'})).status,400);
+ const closedThread=await call('/support/'+ticket.data.id,user);assert.equal(closedThread.data.status,'CLOSED');assert.deepEqual(closedThread.data.messages.map(message=>message.authorType),['USER','OWNER','USER']);
  const burst=await Promise.all(Array.from({length:7},()=>call('/support',other,{message:'Concurrent ticket test'})));assert.equal(burst.filter(r=>r.status===201).length,5);assert.equal(burst.filter(r=>r.status===400).length,2);
- assert.equal((await call('/payments',user,{})).status,503);assert.equal((await call('/withdrawals',user,{})).status,503);assert.equal((await call('/me',user)).data.balance,'0.000000');
- console.log('Integration checks passed: auth, agreements, offer hash, tariff selection, journey, referrals, owner workflow, support and payment gates.');
+ assert.equal((await call('/payments',user,{})).status,503);assert.equal((await call('/withdrawals',user,{})).status,503);assert.equal((await call('/me',user)).data.balance,'12.000000');
+ console.log('Integration checks passed: auth, agreements, offer, owner users, equipment requests, threaded support, notifications and payment gates.');
 }finally{if(child.exitCode===null&&child.signalCode===null){const done=new Promise(r=>child.once('exit',r));child.kill('SIGTERM');const timer=setTimeout(()=>child.kill('SIGKILL'),3000);await done;clearTimeout(timer)}}

@@ -15,6 +15,8 @@ import {createBrowserLogin,bindBrowserLogin,decideBrowserLogin,pollBrowserLogin,
 import {journey,OFFER_DOCUMENT_SHA256,OFFER_NUMBER,OFFER_PUBLISHED_AT,OFFER_SIGNED_AT,OFFER_VERSION,offerTariffs} from './offer.js';
 const {BOT_TOKEN,SESSION_SECRET,OWNER_TELEGRAM_ID,DATABASE_URL}=process.env;
 const AGREEMENT_VERSION='2026-09-14';
+const DEPOSIT_KINDS=['DEPOSIT','DEPOSIT_CONFIRMED','CRYPTO_DEPOSIT_CONFIRMED'];
+const OPEN_TICKET_STATUSES=['OPEN','IN_PROGRESS','ANSWERED'];
 if(!BOT_TOKEN||!SESSION_SECRET||SESSION_SECRET.length<48||!OWNER_TELEGRAM_ID||!DATABASE_URL) throw Error('Missing secure runtime configuration');
 const db=new PrismaClient({adapter:new PrismaPg({connectionString:DATABASE_URL,max:4})});
 function identity(auth?:string) {try{return sessionIdentity(auth,SESSION_SECRET!);}catch(e){throw new UnauthorizedException((e as Error).message);}}
@@ -96,13 +98,14 @@ class Api {
   }
   @Get('me') async me(@Headers('authorization') auth:string){
     const id=identity(auth);const user=await db.user.findUnique({where:{id},include:{selectedTariff:true,offerAcceptances:{where:{version:OFFER_VERSION},take:1}}});if(!user)throw new UnauthorizedException();
-    const [requests,entries,total,refs,tickets,leases]=await Promise.all([
+    const [requests,entries,total,refs,tickets,leases,unreadSupport]=await Promise.all([
       db.rentalRequest.findMany({where:{userId:id},orderBy:{createdAt:'desc'},take:50}),
       db.ledgerEntry.findMany({where:{userId:id},orderBy:{createdAt:'desc'},take:50}),
       db.ledgerEntry.aggregate({where:{userId:id},_sum:{amountMicros:true}}),
       db.user.findMany({where:{referrerId:id},orderBy:{createdAt:'desc'},take:100,select:{id:true,createdAt:true,selectedTariffId:true,offerAcceptances:{where:{version:OFFER_VERSION},select:{id:true},take:1},leases:{where:{status:{in:['PROVISIONING','ACTIVE','OVERCLOCKED']}},select:{id:true},take:1}}}),
-      db.ticket.findMany({where:{userId:id},orderBy:{createdAt:'desc'},take:30}),
-      db.userLease.findMany({where:{userId:id},orderBy:{createdAt:'desc'},take:30,include:{node:{select:{name:true}}}})
+      db.ticket.findMany({where:{userId:id},orderBy:[{lastMessageAt:'desc'},{id:'desc'}],take:30,select:{id:true,category:true,subject:true,status:true,userUnread:true,lastMessageAt:true,createdAt:true,updatedAt:true,_count:{select:{messages:true}},messages:{orderBy:[{createdAt:'desc'},{id:'desc'}],take:1,select:{id:true,authorType:true,body:true,createdAt:true}}}}),
+      db.userLease.findMany({where:{userId:id},orderBy:{createdAt:'desc'},take:30,include:{node:{select:{name:true}}}}),
+      db.ticket.count({where:{userId:id,userUnread:true}})
     ]);
     const accepted=user.agreementVersion===AGREEMENT_VERSION&&Boolean(user.agreementAcceptedAt),offerAcceptance=user.offerAcceptances[0]||null;
     const balanceMicros=total._sum.amountMicros||0n,selected=offerTariffs.find(t=>t.nodeId===user.selectedTariffId)||null;
@@ -110,7 +113,7 @@ class Api {
     const ordered=leases.some(l=>['PROVISIONING','ACTIVE','OVERCLOCKED','EXPIRED'].includes(l.status));
     const epochComplete=leases.some(l=>l.status==='EXPIRED'||new Date(l.expiresAt)<=new Date());
     const referralItems=refs.map(r=>{const active=Boolean(r.leases.length),selectedTariff=Boolean(r.selectedTariffId),offerAccepted=Boolean(r.offerAcceptances.length);return {id:createHmac('sha256',SESSION_SECRET!).update('ref:'+r.id).digest('hex').slice(0,12),label:'Участник '+createHmac('sha256',SESSION_SECRET!).update(r.id).digest('hex').slice(0,4).toUpperCase(),stage:active?'ACTIVE':selectedTariff?'TARIFF_SELECTED':offerAccepted?'OFFER_ACCEPTED':'REGISTERED',joinedAt:r.createdAt};});
-    return {user:{id:user.id,name:user.name,username:user.username,isOwner:id===OWNER_TELEGRAM_ID},agreement:{version:AGREEMENT_VERSION,accepted,acceptedAt:accepted?user.agreementAcceptedAt:null},offer:{number:OFFER_NUMBER,version:OFFER_VERSION,documentSha256:OFFER_DOCUMENT_SHA256,accepted:Boolean(offerAcceptance),acceptedAt:offerAcceptance?.acceptedAt||null},balance:microsToDecimal(balanceMicros),earnedToday:null,selectedTariff:selected?{...selected,selectedAt:user.selectedTariffAt}:null,journey:journey({selected:Boolean(selected),funded,ordered,epochComplete}),requests,tickets,activeNodes:leases,referrals:{total:referralItems.length,active:referralItems.filter(r=>r.stage==='ACTIVE').length,items:referralItems,rewardConfigured:false},entries:entries.map(e=>({...e,amountMicros:undefined,amount:microsToDecimal(e.amountMicros)})),paymentsEnabled:false,accrualEnabled:false,updatedAt:new Date().toISOString()};
+    return {user:{id:user.id,name:user.name,username:user.username,isOwner:id===OWNER_TELEGRAM_ID},agreement:{version:AGREEMENT_VERSION,accepted,acceptedAt:accepted?user.agreementAcceptedAt:null},offer:{number:OFFER_NUMBER,version:OFFER_VERSION,documentSha256:OFFER_DOCUMENT_SHA256,accepted:Boolean(offerAcceptance),acceptedAt:offerAcceptance?.acceptedAt||null},balance:microsToDecimal(balanceMicros),earnedToday:null,selectedTariff:selected?{...selected,selectedAt:user.selectedTariffAt}:null,journey:journey({selected:Boolean(selected),funded,ordered,epochComplete}),requests,tickets,notifications:{unreadSupport},activeNodes:leases,referrals:{total:referralItems.length,active:referralItems.filter(r=>r.stage==='ACTIVE').length,items:referralItems,rewardConfigured:false},entries:entries.map(e=>({...e,amountMicros:undefined,amount:microsToDecimal(e.amountMicros)})),paymentsEnabled:false,accrualEnabled:false,updatedAt:new Date().toISOString()};
   }
   @Post('agreement/accept') async acceptAgreement(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){
     const id=identity(auth),version=field(body,'version',32);if(version!==AGREEMENT_VERSION)throw new BadRequestException('Версия соглашения устарела. Обновите приложение.');
@@ -149,22 +152,118 @@ class Api {
     return db.$transaction(async tx=>{
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${userId}, 31))`;
       if(await tx.ticket.count({where:{userId,createdAt:{gt:new Date(Date.now()-3600000)}}})>=5)throw new BadRequestException('Не более 5 обращений в час.');
-      const result=await tx.ticket.create({data:{userId,message,category,subject}});
+      const now=new Date();
+      const result=await tx.ticket.create({data:{userId,message,category,subject,lastMessageAt:now,ownerUnread:true,userUnread:false,messages:{create:{authorType:'USER',authorId:userId,body:message,createdAt:now}}}});
       await tx.audit.create({data:{actorId:userId,action:'SUPPORT_CREATED',targetId:result.id}});return result;
     });
   }
+  @Get('support/:id') async supportTicket(@Headers('authorization') auth:string,@Param('id') target:string){
+    const userId=await agreed(auth),id=uuid(target);
+    const ticket=await db.ticket.findFirst({where:{id,userId},include:{messages:{orderBy:[{createdAt:'desc'},{id:'desc'}],take:200}}});
+    if(!ticket)throw new NotFoundException('Обращение не найдено.');
+    ticket.messages.reverse();return ticket;
+  }
+  @Post('support/:id/messages') async supportMessage(@Headers('authorization') auth:string,@Param('id') target:string,@Body() body:Record<string,unknown>){
+    const userId=await agreed(auth),id=uuid(target),message=field(body,'message',2000,2);
+    return db.$transaction(async tx=>{
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${id}, 34))`;
+      const current=await tx.ticket.findFirst({where:{id,userId}});if(!current)throw new NotFoundException('Обращение не найдено.');
+      if(current.status==='CLOSED')throw new BadRequestException('Тикет закрыт оператором. Создайте новое обращение.');
+      if(await tx.ticketMessage.count({where:{ticketId:id,authorType:'USER',createdAt:{gt:new Date(Date.now()-3600000)}}})>=20)throw new BadRequestException('Слишком много сообщений. Повторите позже.');
+      const now=new Date();
+      await tx.ticketMessage.create({data:{ticketId:id,authorType:'USER',authorId:userId,body:message,createdAt:now}});
+      const result=await tx.ticket.update({where:{id},data:{status:'OPEN',ownerUnread:true,userUnread:false,lastMessageAt:now}});
+      await tx.audit.create({data:{actorId:userId,action:'SUPPORT_FOLLOW_UP',targetId:id}});return result;
+    });
+  }
+  @Post('support/:id/read') async readSupport(@Headers('authorization') auth:string,@Param('id') target:string){
+    const userId=await agreed(auth),id=uuid(target),result=await db.ticket.updateMany({where:{id,userId},data:{userUnread:false}});
+    if(!result.count)throw new NotFoundException('Обращение не найдено.');return {read:true};
+  }
   @Post('payments') async payment(@Headers('authorization') auth:string){await participating(auth);throw new ServiceUnavailableException('Пополнение пока не подключено. Не переводите средства по реквизитам из сообщений.');}
   @Post('withdrawals') async withdrawal(@Headers('authorization') auth:string){await participating(auth);throw new ServiceUnavailableException('Вывод пока не подключён. Учётный баланс не изменён.');}
-  @Get('admin') async admin(@Headers('authorization') auth:string){await participatingOwner(auth);const [users,requests,tickets]=await Promise.all([db.user.count(),db.rentalRequest.count({where:{status:{in:['REQUESTED','REVIEWED']}}}),db.ticket.count({where:{status:{in:['OPEN','IN_PROGRESS']}}})]);return {users,openRequests:requests,openTickets:tickets};}
-  @Get('admin/requests') async requests(@Headers('authorization') auth:string,@QueryParam('page') page?:string){await participatingOwner(auth);const skip=this.offset(page);return {items:await db.rentalRequest.findMany({orderBy:[{createdAt:'desc'},{id:'desc'}],skip,take:30,include:{user:{select:{name:true}}}})};}
+  @Get('admin') async admin(@Headers('authorization') auth:string){
+    await participatingOwner(auth);
+    const [users,requests,pendingPayments,tickets,unreadTickets,deposits]=await Promise.all([
+      db.user.count(),
+      db.rentalRequest.count({where:{status:{in:['REQUESTED','REVIEWED']}}}),
+      db.rentalRequest.count({where:{paymentStatus:'WAITING',status:{in:['REQUESTED','REVIEWED']}}}),
+      db.ticket.count({where:{status:{in:OPEN_TICKET_STATUSES}}}),
+      db.ticket.count({where:{ownerUnread:true,status:{in:OPEN_TICKET_STATUSES}}}),
+      db.ledgerEntry.aggregate({where:{kind:{in:DEPOSIT_KINDS},amountMicros:{gt:0n}},_sum:{amountMicros:true}})
+    ]);
+    return {users,openRequests:requests,pendingPayments,openTickets:tickets,unreadTickets,confirmedDeposits:microsToDecimal(deposits._sum.amountMicros||0n)};
+  }
+  @Get('admin/users') async users(@Headers('authorization') auth:string,@QueryParam('page') page?:string,@QueryParam('q') q?:string){
+    await participatingOwner(auth);const pageNumber=this.pageNumber(page),skip=pageNumber*30,query=(q||'').trim();
+    if(query.length>64)throw new BadRequestException('Слишком длинный запрос.');
+    const where:any=query?{OR:[{id:{contains:query}},{name:{contains:query,mode:'insensitive'}},{username:{contains:query.replace(/^@/,''),mode:'insensitive'}}]}:{};
+    const [rows,total]=await Promise.all([
+      db.user.findMany({where,orderBy:[{createdAt:'desc'},{id:'desc'}],skip,take:30,select:{id:true,name:true,username:true,createdAt:true,selectedTariffId:true,selectedTariff:{select:{name:true}}}}),
+      db.user.count({where})
+    ]);
+    const ids=rows.map(row=>row.id);
+    const [referralGroups,balanceGroups,depositGroups]=ids.length?await Promise.all([
+      db.user.groupBy({by:['referrerId'],where:{referrerId:{in:ids}},_count:{_all:true}}),
+      db.ledgerEntry.groupBy({by:['userId'],where:{userId:{in:ids}},_sum:{amountMicros:true}}),
+      db.ledgerEntry.groupBy({by:['userId'],where:{userId:{in:ids},kind:{in:DEPOSIT_KINDS},amountMicros:{gt:0n}},_sum:{amountMicros:true}})
+    ]):[[],[],[]];
+    const referrals=new Map<string,number>(referralGroups.flatMap(row=>row.referrerId?[[row.referrerId,row._count._all] as [string,number]]:[]));
+    const balances=new Map<string,bigint>(balanceGroups.map(row=>[row.userId,row._sum.amountMicros||0n]));
+    const deposits=new Map<string,bigint>(depositGroups.map(row=>[row.userId,row._sum.amountMicros||0n]));
+    return {items:rows.map(row=>({...row,invitedCount:referrals.get(row.id)||0,balance:microsToDecimal(balances.get(row.id)||0n),deposited:microsToDecimal(deposits.get(row.id)||0n)})),page:pageNumber,total,hasMore:skip+rows.length<total};
+  }
+  @Get('admin/users/:id') async userDetails(@Headers('authorization') auth:string,@Param('id') target:string,@QueryParam('refPage') refPage?:string){
+    await participatingOwner(auth);const id=this.telegramId(target),referralPage=this.pageNumber(refPage);
+    const user=await db.user.findUnique({where:{id},include:{selectedTariff:{select:{id:true,name:true,priceUsdt:true,contractDays:true}},offerAcceptances:{where:{version:OFFER_VERSION},select:{version:true,acceptedAt:true},take:1}}});
+    if(!user)throw new NotFoundException('Пользователь не найден.');
+    const [balance,deposits,invited,invitedCount,requests,leases,ticketTotal,ticketOpen]=await Promise.all([
+      db.ledgerEntry.aggregate({where:{userId:id},_sum:{amountMicros:true}}),
+      db.ledgerEntry.aggregate({where:{userId:id,kind:{in:DEPOSIT_KINDS},amountMicros:{gt:0n}},_sum:{amountMicros:true}}),
+      db.user.findMany({where:{referrerId:id},orderBy:[{createdAt:'desc'},{id:'desc'}],skip:referralPage*100,take:100,select:{id:true,name:true,username:true,createdAt:true,selectedTariff:{select:{id:true,name:true}}}}),
+      db.user.count({where:{referrerId:id}}),
+      db.rentalRequest.findMany({where:{userId:id},orderBy:[{createdAt:'desc'},{id:'desc'}],take:100}),
+      db.userLease.findMany({where:{userId:id},orderBy:{createdAt:'desc'},take:100,include:{node:{select:{name:true}}}}),
+      db.ticket.count({where:{userId:id}}),
+      db.ticket.count({where:{userId:id,status:{in:OPEN_TICKET_STATUSES}}})
+    ]);
+    const nodes=await this.equipmentNames(requests.map(request=>request.nodeId));
+    return {user:{id:user.id,name:user.name,username:user.username,createdAt:user.createdAt,referrerId:user.referrerId},statistics:{invitedCount,deposited:microsToDecimal(deposits._sum.amountMicros||0n),balance:microsToDecimal(balance._sum.amountMicros||0n),tickets:ticketTotal,openTickets:ticketOpen},documents:{agreementAcceptedAt:user.agreementAcceptedAt,offerAcceptedAt:user.offerAcceptances[0]?.acceptedAt||null},selectedTariff:user.selectedTariff,invited,referrals:{page:referralPage,total:invitedCount,hasMore:(referralPage+1)*100<invitedCount},requests:requests.map(request=>({...request,equipment:{id:request.nodeId,name:nodes.get(request.nodeId)||request.nodeId}})),leases};
+  }
+  @Get('admin/requests') async requests(@Headers('authorization') auth:string,@QueryParam('page') page?:string,@QueryParam('status') status?:string,@QueryParam('payment') payment?:string){
+    await participatingOwner(auth);const pageNumber=this.pageNumber(page),skip=pageNumber*30;
+    if(status&&!['REQUESTED','REVIEWED','CLOSED'].includes(status))throw new BadRequestException('Некорректный статус заявки.');
+    if(payment&&!['WAITING','PAID'].includes(payment))throw new BadRequestException('Некорректный статус платежа.');
+    const where={...(status?{status}:{}),...(payment?{paymentStatus:payment}:{})};
+    const [rows,total]=await Promise.all([db.rentalRequest.findMany({where,orderBy:[{createdAt:'desc'},{id:'desc'}],skip,take:30,include:{user:{select:{id:true,name:true,username:true}}}}),db.rentalRequest.count({where})]);
+    const nodes=await this.equipmentNames(rows.map(row=>row.nodeId));
+    return {items:rows.map(row=>({...row,equipment:{id:row.nodeId,name:nodes.get(row.nodeId)||row.nodeId}})),page:pageNumber,total,hasMore:skip+rows.length<total};
+  }
   @Get('admin/tickets') async tickets(@Headers('authorization') auth:string,@QueryParam('page') page?:string,@QueryParam('status') status?:string,@QueryParam('category') category?:string){
-    await participatingOwner(auth);const skip=this.offset(page);
+    await participatingOwner(auth);const pageNumber=this.pageNumber(page),skip=pageNumber*30;
     if(status&&!['OPEN','IN_PROGRESS','ANSWERED','CLOSED'].includes(status))throw new BadRequestException();
     if(category&&!['QUESTION','COMPLAINT'].includes(category))throw new BadRequestException();
-    return {items:await db.ticket.findMany({where:{...(status?{status}:{}),...(category?{category}:{})},orderBy:[{createdAt:'desc'},{id:'desc'}],skip,take:30,include:{user:{select:{name:true}}}})};
+    const where={...(status?{status}:{}),...(category?{category}:{})};
+    const [rows,total]=await Promise.all([
+      db.ticket.findMany({where,orderBy:[{lastMessageAt:'desc'},{id:'desc'}],skip,take:30,select:{id:true,category:true,subject:true,status:true,ownerUnread:true,userUnread:true,lastMessageAt:true,createdAt:true,updatedAt:true,user:{select:{id:true,name:true,username:true}},_count:{select:{messages:true}},messages:{orderBy:[{createdAt:'desc'},{id:'desc'}],take:1,select:{id:true,authorType:true,body:true,createdAt:true}}}}),
+      db.ticket.count({where})
+    ]);
+    return {items:rows,page:pageNumber,total,hasMore:skip+rows.length<total};
   }
-  @Get('admin/audit') async audit(@Headers('authorization') auth:string,@QueryParam('page') page?:string){await participatingOwner(auth);return {items:await db.audit.findMany({orderBy:[{createdAt:'desc'},{id:'desc'}],skip:this.offset(page),take:30})};}
-  private offset(page?:string){if(page!==undefined&&!/^[0-9]{1,5}$/.test(page))throw new BadRequestException();return Number(page||0)*30;}
+  @Get('admin/tickets/:id') async ticketDetails(@Headers('authorization') auth:string,@Param('id') target:string){
+    await participatingOwner(auth);const id=uuid(target),ticket=await db.ticket.findUnique({where:{id},include:{user:{select:{id:true,name:true,username:true}},messages:{orderBy:[{createdAt:'desc'},{id:'desc'}],take:200}}});
+    if(!ticket)throw new NotFoundException('Тикет не найден.');ticket.messages.reverse();return ticket;
+  }
+  @Post('admin/tickets/:id/read') async readAdminTicket(@Headers('authorization') auth:string,@Param('id') target:string){
+    await participatingOwner(auth);const id=uuid(target),result=await db.ticket.updateMany({where:{id},data:{ownerUnread:false}});if(!result.count)throw new NotFoundException('Тикет не найден.');return {read:true};
+  }
+  @Post('admin/tickets/:id/messages') async ownerMessage(@Headers('authorization') auth:string,@Param('id') target:string,@Body() body:Record<string,unknown>){
+    const actorId=await participatingOwner(auth),id=uuid(target),message=field(body,'message',2000,2);return this.updateTicket(actorId,id,{status:'ANSWERED',reply:message});
+  }
+  @Get('admin/audit') async audit(@Headers('authorization') auth:string,@QueryParam('page') page?:string){await participatingOwner(auth);const pageNumber=this.pageNumber(page);return {items:await db.audit.findMany({orderBy:[{createdAt:'desc'},{id:'desc'}],skip:pageNumber*30,take:30}),page:pageNumber};}
+  private pageNumber(page?:string){if(page!==undefined&&!/^[0-9]{1,5}$/.test(page))throw new BadRequestException('Некорректная страница.');return Number(page||0);}
+  private telegramId(value:string){if(!/^[1-9][0-9]{0,19}$/.test(value))throw new BadRequestException('Некорректный Telegram ID.');return value;}
+  private async equipmentNames(ids:string[]){const unique=[...new Set(ids)];if(!unique.length)return new Map<string,string>();const nodes=await db.gpuCatalog.findMany({where:{id:{in:unique}},select:{id:true,name:true}});return new Map(nodes.map(node=>[node.id,node.name]));}
   @Patch('admin/requests/:id') async review(@Headers('authorization') auth:string,@Param('id') target:string,@Body() body:Record<string,unknown>){
     const actorId=await participatingOwner(auth),id=uuid(target),status=field(body,'status',20);if(!['REVIEWED','CLOSED'].includes(status))throw new BadRequestException();
     const decision=status==='CLOSED'?field(body,'decision',16):null,closureReason=status==='CLOSED'?field(body,'closureReason',1000,3):null;
@@ -177,14 +276,24 @@ class Api {
     });
   }
   @Patch('admin/tickets/:id') async reply(@Headers('authorization') auth:string,@Param('id') target:string,@Body() body:Record<string,unknown>){
-    const actorId=await participatingOwner(auth),id=uuid(target),status=body.status===undefined?'ANSWERED':field(body,'status',20);
-    if(!['OPEN','IN_PROGRESS','ANSWERED','CLOSED'].includes(status))throw new BadRequestException();
+    const actorId=await participatingOwner(auth),id=uuid(target);return this.updateTicket(actorId,id,body);
+  }
+  private async updateTicket(actorId:string,id:string,body:Record<string,unknown>){
+    const status=body.status===undefined?(body.reply===undefined?'IN_PROGRESS':'ANSWERED'):field(body,'status',20);
+    if(!['OPEN','IN_PROGRESS','ANSWERED','CLOSED'].includes(status))throw new BadRequestException('Некорректный статус тикета.');
     const reply=body.reply===undefined?undefined:field(body,'reply',2000,2);
     return db.$transaction(async tx=>{
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${id}, 33))`;
       const current=await tx.ticket.findUnique({where:{id}});if(!current)throw new NotFoundException();
-      if(['ANSWERED','CLOSED'].includes(status)&&!(reply||current.reply))throw new BadRequestException('Добавьте ответ пользователю перед закрытием.');
-      const result=await tx.ticket.update({where:{id},data:{reply,status}});await tx.audit.create({data:{actorId,action:`SUPPORT_${status}`,targetId:id}});return result;
+      if(current.status==='CLOSED'&&status==='CLOSED'&&!reply)return current;
+      if(current.status==='CLOSED'&&status!=='OPEN')throw new BadRequestException('Тикет уже закрыт. Сначала откройте его повторно.');
+      const ownerMessages=reply?1:await tx.ticketMessage.count({where:{ticketId:id,authorType:'OWNER'}});
+      if(['ANSWERED','CLOSED'].includes(status)&&!ownerMessages)throw new BadRequestException('Добавьте ответ пользователю перед закрытием.');
+      const now=new Date();
+      if(reply)await tx.ticketMessage.create({data:{ticketId:id,authorType:'OWNER',authorId:actorId,body:reply,createdAt:now}});
+      const notifyUser=Boolean(reply)||status==='CLOSED'||current.status==='CLOSED';
+      const result=await tx.ticket.update({where:{id},data:{reply,status,ownerUnread:false,userUnread:notifyUser?true:undefined,lastMessageAt:reply?now:undefined,closedAt:status==='CLOSED'?now:null}});
+      await tx.audit.create({data:{actorId,action:`SUPPORT_${status}`,targetId:id}});return result;
     });
   }
 }
