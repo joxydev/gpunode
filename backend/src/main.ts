@@ -19,6 +19,13 @@ const DEPOSIT_KINDS=['DEPOSIT','DEPOSIT_CONFIRMED','CRYPTO_DEPOSIT_CONFIRMED'];
 const OPEN_TICKET_STATUSES=['OPEN','IN_PROGRESS','ANSWERED'];
 if(!BOT_TOKEN||!SESSION_SECRET||SESSION_SECRET.length<48||!OWNER_TELEGRAM_ID||!DATABASE_URL) throw Error('Missing secure runtime configuration');
 const db=new PrismaClient({adapter:new PrismaPg({connectionString:DATABASE_URL,max:4})});
+type BotLanguage='ru'|'en'|'ro';
+function botLanguage(value?:string|null):BotLanguage{return value?.toLowerCase().startsWith('ro')?'ro':value?.toLowerCase().startsWith('en')?'en':'ru';}
+const botWords={
+ ru:{approve:'Вход подтверждён. Вернитесь в браузер.',reject:'Вход отклонён.',stale:'Запрос уже обработан или истёк.',login:'Вход в AetherMind в браузере',code:'Код запроса:',check:'Сверьте код с открытой вкладкой. Подтверждайте только вход, который вы начали сами. После подтверждения вернитесь в ту же вкладку.',expired:'Запрос входа истёк или уже обработан. Начните вход заново в браузере.',confirm:'Подтвердить вход',deny:'Отклонить',start:'AetherMind — участие в коммерческом DePIN-кластере GPU. Примите оферту, выберите фиксированный тариф и следите за этапами в профиле.',terms:'Действующие категории: Node Alpha — 50 USDT, Cluster Beta — 300 USDT, Enterprise POD — 1 200 USDT. Quantum Array находится в разработке. Платежи и начисления пока выключены; полные условия доступны в приложении.',support:'Поддержка AetherMind: откройте приложение и нажмите значок наушников. Обращения и ответы сохраняются в вашем профиле.',open:'Открыть AetherMind'},
+ en:{approve:'Sign-in confirmed. Return to your browser.',reject:'Sign-in rejected.',stale:'Request already processed or expired.',login:'AetherMind browser sign-in',code:'Request code:',check:'Compare the code with your browser tab. Only confirm sign-ins you started. Then return to the same tab.',expired:'Sign-in request expired or already processed. Start again in your browser.',confirm:'Confirm sign-in',deny:'Reject',start:'AetherMind — join the commercial DePIN GPU cluster. Accept the offer, select a fixed plan and track your progress in your profile.',terms:'Available plans: Node Alpha — 50 USDT, Cluster Beta — 300 USDT, Enterprise POD — 1,200 USDT. Quantum Array is in development. Payments and earnings are not enabled yet. See the app for full terms.',support:'AetherMind support: open the app and tap the support icon. Your messages and replies are saved in your profile.',open:'Open AetherMind'},
+ ro:{approve:'Autentificarea a fost confirmată. Revino în browser.',reject:'Autentificarea a fost refuzată.',stale:'Cererea a fost deja procesată sau a expirat.',login:'Autentificare AetherMind în browser',code:'Codul cererii:',check:'Compară codul cu cel din fila de browser. Confirmă doar autentificările inițiate de tine, apoi revino în aceeași filă.',expired:'Cererea de autentificare a expirat sau a fost deja procesată. Începe din nou în browser.',confirm:'Confirmă autentificarea',deny:'Refuză',start:'AetherMind — participă la clusterul GPU DePIN comercial. Acceptă oferta, alege un plan fix și urmărește etapele în profil.',terms:'Planuri disponibile: Node Alpha — 50 USDT, Cluster Beta — 300 USDT, Enterprise POD — 1 200 USDT. Quantum Array este în dezvoltare. Plățile și câștigurile nu sunt încă active; consultă aplicația pentru termenii compleți.',support:'Asistență AetherMind: deschide aplicația și apasă pictograma de asistență. Mesajele și răspunsurile sunt salvate în profilul tău.',open:'Deschide AetherMind'}
+} satisfies Record<BotLanguage,Record<string,string>>;
 function identity(auth?:string) {try{return sessionIdentity(auth,SESSION_SECRET!);}catch(e){throw new UnauthorizedException((e as Error).message);}}
 async function agreed(auth?:string){const id=identity(auth);const user=await db.user.findUnique({where:{id},select:{agreementVersion:true,agreementAcceptedAt:true}});if(user?.agreementVersion!==AGREEMENT_VERSION||!user.agreementAcceptedAt)throw new ForbiddenException({code:'AGREEMENT_REQUIRED',message:'Примите пользовательское соглашение, чтобы продолжить.',version:AGREEMENT_VERSION});return id;}
 async function participating(auth?:string){const id=await agreed(auth);if(!await db.offerAcceptance.findUnique({where:{userId_version:{userId:id,version:OFFER_VERSION}}}))throw new ForbiddenException({code:'OFFER_REQUIRED',message:'Примите актуальную публичную оферту, чтобы продолжить.',version:OFFER_VERSION});return id;}
@@ -68,7 +75,8 @@ class Api {
       const match=typeof callback.data==='string'?callback.data.match(/^bl:([yn]):([0-9a-f-]{36})$/):null;
       if(!match||typeof callback.id!=='string'||!Number.isSafeInteger(callback.from?.id)||callback.message?.chat?.type!=='private'||callback.message.chat.id!==callback.from.id)return {ok:true};
       const changed=await db.$transaction(tx=>decideBrowserLogin((sql,params=[])=>tx.$queryRawUnsafe(sql,...params),match[2],{id:String(callback.from.id),name:String(callback.from.first_name||'Пользователь'),username:callback.from.username},match[1]==='y'));
-      await telegram('answerCallbackQuery',{callback_query_id:callback.id,text:changed?(match[1]==='y'?'Вход подтверждён. Вернитесь в браузер.':'Вход отклонён.'):'Запрос уже обработан или истёк.',show_alert:true});
+      const copy=botWords[botLanguage(callback.from.language_code)];
+      await telegram('answerCallbackQuery',{callback_query_id:callback.id,text:changed?(match[1]==='y'?copy.approve:copy.reject):copy.stale,show_alert:true});
       await db.botUpdate.upsert({where:{id:uid},create:{id:uid},update:{}});return {ok:true};
     }
     const msg=update.message;
@@ -76,14 +84,17 @@ class Api {
     const browser=msg.text.match(/^\/start(?:@[a-zA-Z0-9_]+)?\s+login_([0-9a-f-]{36})$/);
     if(browser){
       const bound=await db.$transaction(tx=>bindBrowserLogin((sql,params=[])=>tx.$queryRawUnsafe(sql,...params),browser[1],String(msg.from.id)));
-      await telegram('sendMessage',{chat_id:msg.chat.id,text:bound?`Вход в AetherMind в браузере ${process.env.PUBLIC_URL}.\nКод запроса: ${loginCode(browser[1])}.\nСверьте код с открытой вкладкой. Подтверждайте только вход, который вы начали сами. После подтверждения вернитесь в ту же вкладку.`:'Запрос входа истёк или уже обработан. Начните вход заново в браузере.',...(bound?{reply_markup:{inline_keyboard:[[{text:'Подтвердить вход',callback_data:`bl:y:${browser[1]}`},{text:'Отклонить',callback_data:`bl:n:${browser[1]}`}]]}}:{})});
+      const copy=botWords[botLanguage(msg.from.language_code)];
+      await telegram('sendMessage',{chat_id:msg.chat.id,text:bound?`${copy.login} ${process.env.PUBLIC_URL}.\n${copy.code} ${loginCode(browser[1])}.\n${copy.check}`:copy.expired,...(bound?{reply_markup:{inline_keyboard:[[{text:copy.confirm,callback_data:`bl:y:${browser[1]}`},{text:copy.deny,callback_data:`bl:n:${browser[1]}`}]]}}:{})});
       await db.botUpdate.upsert({where:{id:uid},create:{id:uid},update:{}});return {ok:true};
     }
     const command=msg.text.split(/[\s@]/)[0];if(!['/start','/support','/terms','/paysupport'].includes(command))return {ok:true};
     const userId=String(msg.from.id),ref=msg.text.match(/^\/start\s+r_([1-9][0-9]{0,15})$/)?.[1];
     if(ref&&ref!==userId&&!await db.user.findUnique({where:{id:userId}})&&await db.user.findUnique({where:{id:ref}}))await db.invite.upsert({where:{telegramId:userId},create:{telegramId:userId,referrerId:ref},update:{}});
-    const text=command==='/start'?'AetherMind — участие в коммерческом DePIN-кластере GPU. Примите оферту, выберите фиксированный тариф и следите за этапами в профиле.':command==='/terms'?'Действующие категории: Node Alpha — 50 USDT, Cluster Beta — 300 USDT, Enterprise POD — 1 200 USDT. Quantum Array находится в разработке. Платежи и начисления пока выключены; полные условия доступны в приложении.':'Поддержка AetherMind: откройте приложение и нажмите значок наушников. Обращения и ответы сохраняются в вашем профиле.';
-    try{const r=await fetch('https://api.telegram.org/bot'+BOT_TOKEN+'/sendMessage',{method:'POST',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:msg.chat.id,text,reply_markup:{inline_keyboard:[[{text:'Открыть AetherMind',web_app:{url:process.env.PUBLIC_URL+'/'}}]]}})});const result=await r.json() as {ok?:boolean};if(!result.ok)throw Error();}catch{throw new ServiceUnavailableException('Bot delivery unavailable');}
+    const saved=await db.user.findUnique({where:{id:userId},select:{preferredLanguage:true}});
+    const copy=botWords[botLanguage(saved?.preferredLanguage||msg.from.language_code)];
+    const text=command==='/start'?copy.start:command==='/terms'?copy.terms:copy.support;
+    try{const r=await fetch('https://api.telegram.org/bot'+BOT_TOKEN+'/sendMessage',{method:'POST',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:msg.chat.id,text,reply_markup:{inline_keyboard:[[{text:copy.open,web_app:{url:process.env.PUBLIC_URL+'/'}}]]}})});const result=await r.json() as {ok?:boolean};if(!result.ok)throw Error();}catch{throw new ServiceUnavailableException('Bot delivery unavailable');}
     await db.botUpdate.upsert({where:{id:uid},create:{id:uid},update:{}});return {ok:true};
   }
   @Get('health') async health(){await db.$queryRaw`SELECT 1`;return {status:'ok',app:'aethermind',commit:process.env.APP_COMMIT||'local'};}
@@ -95,6 +106,12 @@ class Api {
     const ref=refId&&refId!==tg.id ? await db.user.findUnique({where:{id:refId}}):null;
     const user=await db.user.upsert({where:{id:tg.id},create:{id:tg.id,name:tg.name,username:tg.username,referrerId:ref?.id},update:{name:tg.name,username:tg.username}});
     return {token:signSession(user.id,SESSION_SECRET!),expiresIn:21600};
+  }
+  @Patch('me/language') async language(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){
+    const id=identity(auth),language=body?.language;
+    if(language!=='ru'&&language!=='en'&&language!=='ro')throw new BadRequestException('Unsupported language.');
+    await db.user.update({where:{id},data:{preferredLanguage:language}});
+    return {language};
   }
   @Get('me') async me(@Headers('authorization') auth:string){
     const id=identity(auth);const user=await db.user.findUnique({where:{id},include:{selectedTariff:true,offerAcceptances:{where:{version:OFFER_VERSION},take:1}}});if(!user)throw new UnauthorizedException();
@@ -113,7 +130,7 @@ class Api {
     const ordered=leases.some(l=>['PROVISIONING','ACTIVE','OVERCLOCKED','EXPIRED'].includes(l.status));
     const epochComplete=leases.some(l=>l.status==='EXPIRED'||new Date(l.expiresAt)<=new Date());
     const referralItems=refs.map(r=>{const active=Boolean(r.leases.length),selectedTariff=Boolean(r.selectedTariffId),offerAccepted=Boolean(r.offerAcceptances.length);return {id:createHmac('sha256',SESSION_SECRET!).update('ref:'+r.id).digest('hex').slice(0,12),label:'Участник '+createHmac('sha256',SESSION_SECRET!).update(r.id).digest('hex').slice(0,4).toUpperCase(),stage:active?'ACTIVE':selectedTariff?'TARIFF_SELECTED':offerAccepted?'OFFER_ACCEPTED':'REGISTERED',joinedAt:r.createdAt};});
-    return {user:{id:user.id,name:user.name,username:user.username,isOwner:id===OWNER_TELEGRAM_ID},agreement:{version:AGREEMENT_VERSION,accepted,acceptedAt:accepted?user.agreementAcceptedAt:null},offer:{number:OFFER_NUMBER,version:OFFER_VERSION,documentSha256:OFFER_DOCUMENT_SHA256,accepted:Boolean(offerAcceptance),acceptedAt:offerAcceptance?.acceptedAt||null},balance:microsToDecimal(balanceMicros),earnedToday:null,selectedTariff:selected?{...selected,selectedAt:user.selectedTariffAt}:null,journey:journey({selected:Boolean(selected),funded,ordered,epochComplete}),requests,tickets,notifications:{unreadSupport},activeNodes:leases,referrals:{total:referralItems.length,active:referralItems.filter(r=>r.stage==='ACTIVE').length,items:referralItems,rewardConfigured:false},entries:entries.map(e=>({...e,amountMicros:undefined,amount:microsToDecimal(e.amountMicros)})),paymentsEnabled:false,accrualEnabled:false,updatedAt:new Date().toISOString()};
+    return {user:{id:user.id,name:user.name,username:user.username,isOwner:id===OWNER_TELEGRAM_ID,preferredLanguage:user.preferredLanguage},agreement:{version:AGREEMENT_VERSION,accepted,acceptedAt:accepted?user.agreementAcceptedAt:null},offer:{number:OFFER_NUMBER,version:OFFER_VERSION,documentSha256:OFFER_DOCUMENT_SHA256,accepted:Boolean(offerAcceptance),acceptedAt:offerAcceptance?.acceptedAt||null},balance:microsToDecimal(balanceMicros),earnedToday:null,selectedTariff:selected?{...selected,selectedAt:user.selectedTariffAt}:null,journey:journey({selected:Boolean(selected),funded,ordered,epochComplete}),requests,tickets,notifications:{unreadSupport},activeNodes:leases,referrals:{total:referralItems.length,active:referralItems.filter(r=>r.stage==='ACTIVE').length,items:referralItems,rewardConfigured:false},entries:entries.map(e=>({...e,amountMicros:undefined,amount:microsToDecimal(e.amountMicros)})),paymentsEnabled:false,accrualEnabled:false,updatedAt:new Date().toISOString()};
   }
   @Post('agreement/accept') async acceptAgreement(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){
     const id=identity(auth),version=field(body,'version',32);if(version!==AGREEMENT_VERSION)throw new BadRequestException('Версия соглашения устарела. Обновите приложение.');

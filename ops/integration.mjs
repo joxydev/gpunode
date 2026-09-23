@@ -18,6 +18,14 @@ try{
  let healthy=false;for(let i=0;i<40;i++){try{if((await call('/health')).status===200){healthy=true;break}}catch{}await new Promise(r=>setTimeout(r,200))}assert.ok(healthy,'API starts');
  assert.equal((await call('/me')).status,401);assert.equal((await call('/telegram/webhook',null,{update_id:1})).status,401);
  const owner=await login(11111),user=await login(22222),other=await login(33333),referred=await login(44444,'r_22222');
+ assert.equal((await call('/me/language',null,{language:'en'},'PATCH')).status,401);
+ assert.equal((await call('/me/language',user,{language:'de'},'PATCH')).status,400);
+ assert.equal((await call('/me/language',user,{language:'ro'},'PATCH')).status,200);
+ assert.equal((await call('/me',user)).data.user.preferredLanguage,'ro','language is saved before accepting agreements');
+ assert.equal((await call('/me/language',user,{language:'en'},'PATCH')).status,200);
+ const returning=await login(22222);assert.equal((await call('/me',returning)).data.user.preferredLanguage,'en','language survives new sessions');
+ assert.equal((await call('/me/language',user,{language:'ru'},'PATCH')).status,200);
+ assert.equal((await call('/me',user)).data.user.preferredLanguage,'ru');
  const publicOffer=await call('/offer');assert.equal(publicOffer.status,200);assert.equal(publicOffer.data.version,offerBody.version);assert.equal(publicOffer.data.documentSha256,offerBody.documentSha256);assert.equal(publicOffer.data.tariffs.length,4);assert.equal(publicOffer.data.tariffs[0].dailyPercent,'1.50');assert.equal(publicOffer.data.tariffs[3].available,false);
  const beforeAgreement=await call('/me',user);assert.equal(beforeAgreement.data.agreement.accepted,false);assert.equal(beforeAgreement.data.offer.accepted,false);assert.deepEqual(beforeAgreement.data.journey.map(s=>s.state),['DONE','CURRENT','WAITING','WAITING','LOCKED']);
  assert.equal((await call('/profile/tariff',user,{nodeId:'NODE_4090'})).status,403);
@@ -71,5 +79,5 @@ try{
  const closedThread=await call('/support/'+ticket.data.id,user);assert.equal(closedThread.data.status,'CLOSED');assert.deepEqual(closedThread.data.messages.map(message=>message.authorType),['USER','OWNER','USER']);
  const burst=await Promise.all(Array.from({length:7},()=>call('/support',other,{message:'Concurrent ticket test'})));assert.equal(burst.filter(r=>r.status===201).length,5);assert.equal(burst.filter(r=>r.status===400).length,2);
  assert.equal((await call('/payments',user,{})).status,503);assert.equal((await call('/withdrawals',user,{})).status,503);assert.equal((await call('/me',user)).data.balance,'12.000000');
- console.log('Integration checks passed: auth, agreements, offer, owner users, equipment requests, threaded support, notifications and payment gates.');
+ console.log('Integration checks passed: auth, persistent language preference, agreements, offer, owner users, equipment requests, threaded support, notifications and payment gates.');
 }finally{if(child.exitCode===null&&child.signalCode===null){const done=new Promise(r=>child.once('exit',r));child.kill('SIGTERM');const timer=setTimeout(()=>child.kill('SIGKILL'),3000);await done;clearTimeout(timer)}}

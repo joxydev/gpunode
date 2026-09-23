@@ -36,7 +36,7 @@ jobs:
       - run: npm run db:migrate
       - run: node --check ops/integration.mjs
       - run: python3 -m py_compile ops/vps-ci.py
-      - run: bash -n ops/owner-center-deploy.sh
+      - run: bash -n ops/language-deploy.sh ops/30_language_github.sh ops/31_language_vps.sh
       - run: echo 'b21177972dbdeedbea731e826b070ff7fb148ec1f96e7892536e67e40732ce88  frontend/public/documents/public-offer-aethermind.pdf' | sha256sum --check --strict
       - run: node ops/integration.mjs
       - run: bash -n ops/vps.sh

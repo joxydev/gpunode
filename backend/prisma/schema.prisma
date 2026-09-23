@@ -8,6 +8,7 @@ model User {
   id String @id
   name String
   username String?
+  preferredLanguage String? @db.VarChar(2)
   referrerId String?
   agreementVersion String?
   agreementAcceptedAt DateTime?
