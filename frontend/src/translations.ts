@@ -1,4 +1,6 @@
 export const translations:Record<string,[string,string]> = {
+  "Настройки и документы": ["Settings and documents", "Setări și documente"],
+  "Заказ на рассмотрении": ["Order under review", "Comandă în curs de examinare"],
   "Выбор сохраняется без оплаты. Тестовый заказ доступен после начисления тестовых средств владельцем. Реальные пополнения, Compound Boost и начисления пока выключены.": ["Selecting a plan is free. Test orders are available after an owner credit. Real deposits, Compound Boost and earnings are disabled.", "Alegerea planului este gratuită. Comenzile de test sunt disponibile după creditarea de către proprietar. Depozitele reale, Compound Boost și veniturile sunt dezactivate."],
   "Тестовых средств достаточно для выбранного тарифа.": ["Enough test funds for the selected plan.", "Sunt suficiente fonduri de test pentru planul ales."],
   "Платежи недоступны; тестовый баланс может начислить владелец.": ["Payments are unavailable; the owner can grant test funds.", "Plățile nu sunt disponibile; proprietarul poate acorda fonduri de test."],

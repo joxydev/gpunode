@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Atomic deployment of the AetherMind test-order cycle.
+# Atomic deployment of the AetherMind visual release and test-order cycle.
 # shellcheck disable=SC2016
 set -Eeuo pipefail
 umask 077
@@ -42,8 +42,8 @@ node_path=$(dirname "$node_bin")
 export PATH="$node_path:$PATH"
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
-backup="/srv/backups/gpunode/test-cycle-$stamp"
-release="/srv/releases/gpunode/$stamp-${sha:0:12}-test-cycle"
+backup="/srv/backups/gpunode/visual-$stamp"
+release="/srv/releases/gpunode/$stamp-${sha:0:12}-visual"
 [[ ! -e $release && ! -e $backup ]] || fail 'Каталог этого релиза уже существует.'
 install -d -m 0700 "$backup"
 install -d -m 0755 -o deploy -g deploy "$release"
@@ -55,8 +55,8 @@ rollback(){
   set +e
   if ((activated)); then
     systemctl stop gpunode.service
-    ln -sfn "$previous" "$root/current-test-cycle-rollback"
-    mv -Tf "$root/current-test-cycle-rollback" "$root/current"
+    ln -sfn "$previous" "$root/current-visual-rollback"
+    mv -Tf "$root/current-visual-rollback" "$root/current"
     cp -a "$backup/gpunode.service" "$service"
     systemctl daemon-reload
     systemctl start gpunode.service
@@ -90,6 +90,7 @@ PY
 [[ -f $release/backend/src/offer.ts && -f $release/frontend/src/Offer.tsx && -f $release/frontend/src/Profile.tsx && -f $release/frontend/src/Referrals.tsx ]] || fail 'Неполный исходный код обновления.'
 [[ -f $release/backend/prisma/migrations/202609230001_user_language/migration.sql && -f $release/frontend/src/LanguagePicker.tsx && -f $release/frontend/src/LegalTranslations.tsx && -f $release/ops/vps-ci.py ]] || fail 'Нет языковой миграции, перевода документов или VPS CI.'
 [[ -f $release/backend/prisma/migrations/202609230002_test_cycle/migration.sql && -f $release/backend/test/test-cycle.test.ts && -f $release/docs/TEST_ORDER_CYCLE.md ]] || fail 'Нет миграции или проверок тестовых заказов.'
+[[ -f $release/frontend/src/space-layout.css && -f $release/frontend/public/assets/cosmic-field.svg ]] || fail 'Нет адаптивной компоновки или космического фона.'
 printf '%s  %s\n' 'b21177972dbdeedbea731e826b070ff7fb148ec1f96e7892536e67e40732ce88' "$release/frontend/public/documents/public-offer-aethermind.pdf" | sha256sum --check --status || fail 'PDF оферты отличается от утверждённого документа.'
 printf '%s  %s\n' '7678c55b371736e130bc52f5e401d7d9d33288ad6284ae2dcb7097d25ecdeca3' "$release/frontend/public/documents/user-agreement-aethermind.pdf" | sha256sum --check --status || fail 'Пользовательское соглашение повреждено.'
 printf '%s\n' "$sha" > "$release/DEPLOYED_COMMIT"
@@ -123,6 +124,7 @@ grep -Rqs 'Alegeți limba' frontend/dist/assets/*.js
 grep -Rqs 'User Agreement' frontend/dist/assets/*.js
 grep -Rqs 'Мои активы' frontend/dist/assets/*.js
 grep -Rqs 'Тестовый баланс' frontend/dist/assets/*.js
+grep -Rqs 'cosmic-field.svg' frontend/dist/assets/*.css
 BUILD
 
 find "$release/frontend/dist" -type d -exec chmod 0755 {} +
@@ -160,8 +162,8 @@ if count != 1:
 path.write_text(result)
 PY
 chmod 0644 "$service"
-ln -sfn "$release" "$root/current-test-cycle-next"
-mv -Tf "$root/current-test-cycle-next" "$root/current"
+ln -sfn "$release" "$root/current-visual-next"
+mv -Tf "$root/current-visual-next" "$root/current"
 systemctl daemon-reload
 systemctl restart gpunode.service
 
@@ -180,6 +182,7 @@ curl "${web[@]}" https://31.77.226.26/api/v1/market -o "$backup/market.json"
 curl "${web[@]}" https://31.77.226.26/api/offer -o "$backup/offer.json"
 curl "${web[@]}" https://31.77.226.26/ -o "$backup/index.html"
 curl "${web[@]}" https://31.77.226.26/documents/public-offer-aethermind.pdf -o "$backup/public-offer.pdf"
+curl "${web[@]}" https://31.77.226.26/assets/cosmic-field.svg -o "$backup/cosmic-field.svg"
 printf '%s  %s\n' 'b21177972dbdeedbea731e826b070ff7fb148ec1f96e7892536e67e40732ce88' "$backup/public-offer.pdf" | sha256sum --check --status
 
 python3 - "$backup" "$sha" <<'PY'
@@ -196,6 +199,10 @@ assert offer['version'] == '88-2026-AI-2026-09-21'
 assert offer['paymentsEnabled'] is False and offer['accrualEnabled'] is False
 assert offer['documentSha256'] == 'b21177972dbdeedbea731e826b070ff7fb148ec1f96e7892536e67e40732ce88'
 assert 'AetherMind' in (root / 'index.html').read_text()
+from xml.etree import ElementTree
+background = root / 'cosmic-field.svg'
+assert background.stat().st_size < 20000
+assert ElementTree.parse(background).getroot().tag.endswith('svg')
 PY
 
 mapfile -t assets < <(grep -oE '/assets/[^" ]+\.(js|css)' "$backup/index.html" | sort -u)
