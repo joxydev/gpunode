@@ -18,6 +18,10 @@ test('profile journey advances deterministically without pretending payments wor
   assert.deepEqual(fresh.map(s=>s.state),['DONE','CURRENT','WAITING','WAITING','LOCKED']);
   const selected=journey({selected:true,funded:false,ordered:false,epochComplete:false});
   assert.equal(selected[1].state,'DONE');assert.equal(selected[2].state,'CURRENT');assert.equal(selected[2].available,false);
+  const ready=journey({selected:true,funded:true,ordered:false,epochComplete:false});
+  assert.equal(ready[3].state,'CURRENT');assert.equal(ready[3].available,true);
+  const pending=journey({selected:true,funded:true,ordered:false,pendingOrder:true,epochComplete:false});
+  assert.equal(pending[3].state,'WAITING');assert.equal(pending[3].available,false);
   const expired=journey({selected:true,funded:true,ordered:true,epochComplete:true});
   assert.deepEqual(expired.map(s=>s.state),['DONE','DONE','DONE','DONE','CURRENT']);
 });

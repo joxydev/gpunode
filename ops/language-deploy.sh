@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Atomic deployment of the AetherMind multilingual AetherMind update.
+# Atomic deployment of the AetherMind test-order cycle.
 # shellcheck disable=SC2016
 set -Eeuo pipefail
 umask 077
@@ -42,8 +42,8 @@ node_path=$(dirname "$node_bin")
 export PATH="$node_path:$PATH"
 
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
-backup="/srv/backups/gpunode/language-$stamp"
-release="/srv/releases/gpunode/$stamp-${sha:0:12}-language"
+backup="/srv/backups/gpunode/test-cycle-$stamp"
+release="/srv/releases/gpunode/$stamp-${sha:0:12}-test-cycle"
 [[ ! -e $release && ! -e $backup ]] || fail 'Каталог этого релиза уже существует.'
 install -d -m 0700 "$backup"
 install -d -m 0755 -o deploy -g deploy "$release"
@@ -55,8 +55,8 @@ rollback(){
   set +e
   if ((activated)); then
     systemctl stop gpunode.service
-    ln -sfn "$previous" "$root/current-language-rollback"
-    mv -Tf "$root/current-language-rollback" "$root/current"
+    ln -sfn "$previous" "$root/current-test-cycle-rollback"
+    mv -Tf "$root/current-test-cycle-rollback" "$root/current"
     cp -a "$backup/gpunode.service" "$service"
     systemctl daemon-reload
     systemctl start gpunode.service
@@ -89,6 +89,7 @@ PY
 [[ -f $release/.aethermind-project && -f $release/docs/OFFER_IMPLEMENTATION.md && -f $release/docs/OWNER_CONTROL_CENTER.md ]] || fail 'В архиве нет документации панели владельца.'
 [[ -f $release/backend/src/offer.ts && -f $release/frontend/src/Offer.tsx && -f $release/frontend/src/Profile.tsx && -f $release/frontend/src/Referrals.tsx ]] || fail 'Неполный исходный код обновления.'
 [[ -f $release/backend/prisma/migrations/202609230001_user_language/migration.sql && -f $release/frontend/src/LanguagePicker.tsx && -f $release/frontend/src/LegalTranslations.tsx && -f $release/ops/vps-ci.py ]] || fail 'Нет языковой миграции, перевода документов или VPS CI.'
+[[ -f $release/backend/prisma/migrations/202609230002_test_cycle/migration.sql && -f $release/backend/test/test-cycle.test.ts && -f $release/docs/TEST_ORDER_CYCLE.md ]] || fail 'Нет миграции или проверок тестовых заказов.'
 printf '%s  %s\n' 'b21177972dbdeedbea731e826b070ff7fb148ec1f96e7892536e67e40732ce88' "$release/frontend/public/documents/public-offer-aethermind.pdf" | sha256sum --check --status || fail 'PDF оферты отличается от утверждённого документа.'
 printf '%s  %s\n' '7678c55b371736e130bc52f5e401d7d9d33288ad6284ae2dcb7097d25ecdeca3' "$release/frontend/public/documents/user-agreement-aethermind.pdf" | sha256sum --check --status || fail 'Пользовательское соглашение повреждено.'
 printf '%s\n' "$sha" > "$release/DEPLOYED_COMMIT"
@@ -120,6 +121,8 @@ grep -Rqs 'Управление AetherMind' frontend/dist/assets/*.js
 grep -Rqs 'Choose your language' frontend/dist/assets/*.js
 grep -Rqs 'Alegeți limba' frontend/dist/assets/*.js
 grep -Rqs 'User Agreement' frontend/dist/assets/*.js
+grep -Rqs 'Мои активы' frontend/dist/assets/*.js
+grep -Rqs 'Тестовый баланс' frontend/dist/assets/*.js
 BUILD
 
 find "$release/frontend/dist" -type d -exec chmod 0755 {} +
@@ -157,8 +160,8 @@ if count != 1:
 path.write_text(result)
 PY
 chmod 0644 "$service"
-ln -sfn "$release" "$root/current-language-next"
-mv -Tf "$root/current-language-next" "$root/current"
+ln -sfn "$release" "$root/current-test-cycle-next"
+mv -Tf "$root/current-test-cycle-next" "$root/current"
 systemctl daemon-reload
 systemctl restart gpunode.service
 
@@ -208,6 +211,8 @@ done
 [[ $(curl -sS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 -o /dev/null -w '%{http_code}' -X POST https://31.77.226.26/api/profile/tariff) == 401 ]]
 [[ $(curl -sS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 -o /dev/null -w '%{http_code}' https://31.77.226.26/api/admin/users) == 401 ]]
 [[ $(curl -sS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 -o /dev/null -w '%{http_code}' https://31.77.226.26/api/admin/tickets) == 401 ]]
+[[ $(curl -sS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' https://31.77.226.26/api/test/orders) == 401 ]]
+[[ $(curl -sS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' https://31.77.226.26/api/admin/users/11111/test-credit) == 401 ]]
 systemctl is-active --quiet gpunode.service
 systemctl is-active --quiet gpu-cert-renew.timer
 
@@ -222,4 +227,4 @@ PY
 python3 "$release/ops/bot-config.py"
 
 trap - ERR INT TERM
-printf '\nГОТОВО: https://31.77.226.26/\nРусский, English и Română доступны в приложении.\nКоммит: %s\nБэкап: %s\nПлатежи и начисления остаются выключенными. Полностью закройте и заново откройте Mini App.\n' "$sha" "$backup"
+printf '\nГОТОВО: https://31.77.226.26/\nТестовые заказы и отдельный баланс доступны на трёх языках.\nКоммит: %s\nБэкап: %s\nПлатежи и начисления остаются выключенными. Полностью закройте и заново откройте Mini App.\n' "$sha" "$backup"

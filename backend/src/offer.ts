@@ -13,13 +13,13 @@ export const offerTariffs=[
 
 export type JourneyState='DONE'|'CURRENT'|'WAITING'|'LOCKED';
 export type JourneyStep={id:'REGISTERED'|'TARIFF'|'FUNDED'|'ORDERED'|'WITHDRAW';title:string;description:string;state:JourneyState;available:boolean};
-export function journey(input:{selected:boolean;funded:boolean;ordered:boolean;epochComplete:boolean}):JourneyStep[]{
-  const {selected,funded,ordered,epochComplete}=input;
+export function journey(input:{selected:boolean;funded:boolean;ordered:boolean;epochComplete:boolean;pendingOrder?:boolean}):JourneyStep[]{
+  const {selected,funded,ordered,epochComplete,pendingOrder}=input;
   return [
     {id:'REGISTERED',title:'Регистрация',description:'Профиль Telegram создан и защищён.',state:'DONE',available:true},
     {id:'TARIFF',title:'Выбор тарифа',description:selected?'Тариф сохранён в профиле.':'Выберите фиксированную категорию по оферте.',state:selected?'DONE':'CURRENT',available:true},
-    {id:'FUNDED',title:'Пополнение',description:funded?'Депозит подтверждён в учётном балансе.':'Будет доступно после подключения платёжного провайдера.',state:funded?'DONE':selected?'CURRENT':'WAITING',available:false},
-    {id:'ORDERED',title:'Заказать тариф',description:ordered?'Слот активирован, Epoch запущен.':'Заказ станет доступен после подтверждения депозита.',state:ordered?'DONE':funded?'CURRENT':'WAITING',available:false},
+    {id:'FUNDED',title:'Пополнение',description:funded?'Тестовых средств достаточно для выбранного тарифа.':'Платежи недоступны; тестовый баланс может начислить владелец.',state:funded?'DONE':selected?'CURRENT':'WAITING',available:false},
+    {id:'ORDERED',title:'Заказать тариф',description:ordered?'Заказ одобрен; назначение оборудования ожидается.':pendingOrder?'Заявка передана владельцу и ожидает решения.':'Доступно при достаточном тестовом балансе.',state:ordered?'DONE':pendingOrder?'WAITING':funded?'CURRENT':'WAITING',available:funded&&!pendingOrder&&!ordered},
     {id:'WITHDRAW',title:'Вывести средства',description:epochComplete?'Epoch завершён; вывод станет доступен после подключения выплат.':'После окончания срока выбранного тарифа.',state:epochComplete?'CURRENT':'LOCKED',available:false}
   ];
 }
