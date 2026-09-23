@@ -41,7 +41,16 @@ export default function OwnerPanel({onRefresh}:{onRefresh:()=>Promise<void>}){
  }
  useEffect(()=>{setItems([]);setUserDetail(null);setTicketDetail(null);void load();return()=>{version.current++}},[section,page,submittedQuery,status,category,payment]);
  useEffect(()=>{const timer=setInterval(()=>{if(document.visibilityState==='visible'&&(section==='overview'||section==='tickets'))void load(false)},20000);return()=>clearInterval(timer)},[section,page,status,category,payment]);
- function select(next:string){if(next===section||saving.current)return;setStatus('');setCategory('');setPayment('');setPage(0);setSection(next)}
+ function select(next:string){
+  if(next===section||saving.current)return;
+  // Clear the previous section in the same event as the tab change. Effects run
+  // after render; keeping request rows for that first users render crashes on name.slice().
+  version.current++;
+  setItems([]);setTotal(0);setHasMore(false);
+  setUserDetail(null);setTicketDetail(null);
+  setLoading(true);setError('');
+  setStatus('');setCategory('');setPayment('');setPage(0);setSection(next);
+ }
  async function requestChange(id:string,body:unknown){
   if(saving.current)return;saving.current=true;setBusy(true);setError('');setNotice('');
   try{await api('/admin/requests/'+id,body,'PATCH');setNotice(t('Заявка обновлена.'));await load(false);await onRefresh()}catch(e){setError((e as Error).message)}finally{saving.current=false;setBusy(false)}
