@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,generateKeyPairSync,sign as edSign} from 'node:crypto';
 import {readFileSync} from 'node:fs';
-import {Address,beginCell,Cell,storeStateInit,WalletContractV5R1} from '@ton/ton';
+import {Address,beginCell,Cell,storeStateInit,WalletContractV5R1,toNano} from '@ton/ton';
 import {PGlite} from '@electric-sql/pglite';
-import {tonConfig,usdtUnits} from '../src/ton/config.js';
+import {tonConfig,usdtUnits,attachForUser,DEFAULT_MASTER,DEFAULT_TREASURY} from '../src/ton/config.js';
 import {verifyTonProof} from '../src/ton/proof.js';
-import {jettonPayment} from '../src/ton/jetton.js';
+import {buildJettonTransfer} from '../src/ton/jetton.js';
 import {parseNotification} from '../src/ton/notification.js';
 
 const config=tonConfig({PUBLIC_URL:'https://31.77.226.26',ENABLE_TON_USDT_DEPOSITS:'false'});
@@ -37,13 +37,26 @@ test('USDT is exact base units, transaction is Jetton transfer with tagged invoi
  assert.equal(usdtUnits('50.000001'),50000001n);
  for(const value of ['0','0.0000001','-1','1e6','0.01x',50])assert.throws(()=>usdtUnits(value));
  assert.throws(()=>tonConfig({USDT_TON_MASTER:config.treasury.toRawString()}));
+ assert.equal(config.master.toRawString(),Address.parse(DEFAULT_MASTER).toRawString());
+ assert.equal(config.treasury.toRawString(),Address.parse(DEFAULT_TREASURY).toRawString());
+ assert.equal(config.attachAmount,toNano('0.05'));
+ assert.notEqual(config.attachAmount,toNano('0.1'));
+ for(const attach of ['0','0.0000000001','0.3','-0.05','1e-2','0.05abc'])assert.throws(()=>tonConfig({TON_JETTON_ATTACH_GRAM:attach}));
+ const configured=tonConfig({OWNER_TELEGRAM_ID:'112233',TON_JETTON_ATTACH_GRAM:'0.06',TON_JETTON_ATTACH_SMOKE_OWNER_GRAM:'0.05'});
+ assert.equal(attachForUser(configured,'112233'),toNano('0.05'));
+ assert.equal(attachForUser(configured,'other'),toNano('0.06'));
+ assert.throws(()=>tonConfig({TON_JETTON_ATTACH_SMOKE_OWNER_GRAM:'0.05'}));
  const invoice='dep_'+'f'.repeat(32),queryId='42',amount=50000001n;
- const built=jettonPayment(config.treasury,config.treasury,config.master,amount,queryId,invoice,new Date(Date.now()+900000));
- assert.equal(built.network,'-239');assert.equal(built.messages.length,1);assert.ok(BigInt(built.messages[0].amount)>0n);
+ const sender=Address.parse('0:'+'1'.repeat(64)),jettonWallet=Address.parse('0:'+'2'.repeat(64));
+ const built=buildJettonTransfer({sender,treasury:config.treasury,jettonWallet,usdtAmount:amount,queryId,invoiceId:invoice,responseDestination:sender,attachAmount:config.attachAmount,expiresAt:new Date(Date.now()+900000)});
+ assert.equal(built.network,'-239');assert.equal(built.messages.length,1);assert.equal(BigInt(built.messages[0].amount),toNano('0.05'));
+ assert.equal(Address.parse(built.from).toRawString(),sender.toRawString());
+ assert.equal(Address.parse(built.messages[0].address).toRawString(),jettonWallet.toRawString());
  const slice=Cell.fromBase64(built.messages[0].payload).beginParse();
  assert.equal(slice.loadUint(32),0x0f8a7ea5);assert.equal(slice.loadUintBig(64),42n);assert.equal(slice.loadCoins(),amount);
- assert.ok(slice.loadAddress()?.equals(config.treasury));slice.loadAddress();assert.equal(slice.loadBit(),false);
- assert.ok(slice.loadCoins()>0n);assert.equal(slice.loadBit(),true);const forward=slice.loadRef().beginParse();assert.equal(forward.loadUint(32),0);assert.equal(forward.loadStringTail(),'AETHERMIND:'+invoice);
+ assert.ok(slice.loadAddress()?.equals(config.treasury));assert.ok(slice.loadAddress()?.equals(sender));assert.equal(slice.loadBit(),false);
+ assert.equal(slice.loadCoins(),1n);assert.equal(slice.loadBit(),true);const forward=slice.loadRef().beginParse();assert.equal(forward.loadUint(32),0);assert.equal(forward.loadStringTail(),'AETHERMIND:'+invoice);
+ assert.throws(()=>buildJettonTransfer({sender,treasury:config.treasury,jettonWallet,usdtAmount:amount,queryId,invoiceId:invoice,responseDestination:sender,attachAmount:0n,expiresAt:new Date()}));
 });
 
 test('incoming notification rejects fake master wallet, bounce, missing invoice or aborted transfer',()=>{

@@ -1,7 +1,14 @@
-import {Address} from '@ton/ton';
+import {Address,toNano} from '@ton/ton';
 
 export const DEFAULT_TREASURY='UQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH';
 export const DEFAULT_MASTER='EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs';
+
+function attachNanograms(value:string):bigint{
+ if(!/^0\.\d{1,9}$/.test(value))throw Error('TON_JETTON_ATTACH_GRAM must be a decimal fraction of GRAM');
+ const amount=toNano(value);
+ if(amount<=0n||amount>toNano('0.2'))throw Error('TON_JETTON_ATTACH_GRAM out of range');
+ return amount;
+}
 
 export function tonConfig(env:NodeJS.ProcessEnv=process.env){
  if((env.TON_NETWORK||'mainnet')!=='mainnet'||(env.TON_CHAIN_ID||'-239')!=='-239')throw Error('TON Mainnet is the only supported network');
@@ -20,7 +27,16 @@ export function tonConfig(env:NodeJS.ProcessEnv=process.env){
  const min=usdtUnits(env.TON_DEPOSIT_MIN_USDT||'1');
  const max=usdtUnits(env.TON_DEPOSIT_MAX_USDT||'10000');
  if(min>max)throw Error('Invalid deposit limits');
- return {treasury,master,apiBase,apiKey,enabled,publicUrl,domain:publicUrl.hostname,min,max};
+ const attachAmount=attachNanograms(env.TON_JETTON_ATTACH_GRAM||'0.05');
+ // Canary: only the actual server-side owner ID receives the candidate attach.
+ if(env.TON_JETTON_ATTACH_SMOKE_OWNER_GRAM&&!/^\d{1,20}$/.test(env.OWNER_TELEGRAM_ID||''))throw Error('OWNER_TELEGRAM_ID required for owner attach smoke');
+ const ownerSmokeAttach=env.TON_JETTON_ATTACH_SMOKE_OWNER_GRAM?attachNanograms(env.TON_JETTON_ATTACH_SMOKE_OWNER_GRAM):null;
+ const smokeOwnerId=ownerSmokeAttach?env.OWNER_TELEGRAM_ID:null;
+ return {treasury,master,apiBase,apiKey,enabled,publicUrl,domain:publicUrl.hostname,min,max,attachAmount,ownerSmokeAttach,smokeOwnerId};
+}
+
+export function attachForUser(config:ReturnType<typeof tonConfig>,userId:string){
+ return config.ownerSmokeAttach!==null&&config.smokeOwnerId===userId?config.ownerSmokeAttach:config.attachAmount;
 }
 
 export function usdtUnits(value:unknown):bigint{

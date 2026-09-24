@@ -2,9 +2,9 @@ import {randomBytes,createHash} from 'node:crypto';
 import {BadRequestException,ForbiddenException,NotFoundException,ServiceUnavailableException} from '@nestjs/common';
 import type {PrismaClient,TonDeposit} from '@prisma/client';
 import {Address} from '@ton/ton';
-import {tonConfig,usdtString,usdtUnits,friendly} from '../ton/config.js';
+import {tonConfig,usdtString,usdtUnits,friendly,attachForUser} from '../ton/config.js';
 import {TonCenter} from '../ton/center.js';
-import {jettonPayment} from '../ton/jetton.js';
+import {buildJettonTransfer} from '../ton/jetton.js';
 import {verifyTonProof,type ProofInput} from '../ton/proof.js';
 
 export const config=tonConfig();
@@ -69,7 +69,7 @@ export class DepositsService {
    if(await tx.tonDeposit.count({where:{userId,status:'PENDING',expiresAt:{gt:new Date()}}})>=1)throw new BadRequestException('Сначала завершите или отмените предыдущий счёт.');
    return tx.tonDeposit.create({data:{invoiceId,userId,network:'TON',asset:'USDT',senderAddress:sender.toRawString(),recipientAddress:config.treasury.toRawString(),jettonMaster:config.master.toRawString(),requestedMicros:amount,expiresAt:new Date(Date.now()+maxAge),queryId}});
   });
-  return {deposit:safeDeposit(row),transaction:jettonPayment(sender,config.treasury,senderJetton,amount,queryId,invoiceId,row.expiresAt)};
+  return {deposit:safeDeposit(row),transaction:buildJettonTransfer({sender,treasury:config.treasury,jettonWallet:senderJetton,usdtAmount:amount,queryId,invoiceId,responseDestination:sender,attachAmount:attachForUser(config,userId),expiresAt:row.expiresAt})};
  }
  async cancel(userId:string,id:string){
   return this.db.$transaction(async tx=>{

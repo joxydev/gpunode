@@ -39,7 +39,7 @@ export const translations:Record<string,[string,string]> = {
   "Актив": ["Asset", "Activ"],
   "Сеть": ["Network", "Rețea"],
   "Получатель": ["Recipient", "Destinatar"],
-  "Для комиссии перевода в кошельке понадобится TON.": ["Your wallet needs TON to pay the network fee.", "Portofelul trebuie să conțină TON pentru taxa de rețea."],
+  "Для выполнения перевода нужен небольшой баланс TON (GRAM). Неиспользованный резерв возвращается кошельком; фактическую комиссию покажет кошелёк.": ["A small TON (GRAM) balance is needed to send the transfer. Unused execution reserve is returned to your wallet; your wallet shows the actual fee.", "Pentru transfer aveți nevoie de un sold mic de TON (GRAM). Rezerva neutilizată revine în portofel; taxa reală este afișată de portofel."],
   "Продолжить в кошельке": ["Continue in wallet", "Continuă în portofel"],
   "Платёж зачислен": ["Payment credited", "Plată creditată"],
   "Ожидаем подтверждение сети": ["Awaiting network confirmation", "Așteptăm confirmarea rețelei"],

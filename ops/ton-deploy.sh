@@ -170,8 +170,12 @@ if ! grep -Eq '^TONCENTER_API_KEY=[A-Za-z0-9_-]{8,200}$' "$envfile"; then
     unset ton_key
   fi
 fi
-printf 'TON_NETWORK=mainnet\nTON_CHAIN_ID=-239\nTON_WALLET_VERSION=W5\nAETHERMIND_TREASURY_ADDRESS=UQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH\nUSDT_TON_MASTER=EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs\nTONCENTER_API_BASE=https://toncenter.com/api/v3\nENABLE_TON_USDT_DEPOSITS=true\n' >> "$envfile"
 env_changed=1
+printf 'TON_NETWORK=mainnet\nTON_CHAIN_ID=-239\nTON_WALLET_VERSION=W5\nAETHERMIND_TREASURY_ADDRESS=UQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH\nUSDT_TON_MASTER=EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs\nTONCENTER_API_BASE=https://toncenter.com/api/v3\nENABLE_TON_USDT_DEPOSITS=true\n' >> "$envfile"
+# Keep the public execution reserve unchanged until an actual Mainnet trace
+# proves that the candidate value covers this invoice's forward payload.
+# The server-side owner gets the smaller candidate only for a smoke payment.
+printf 'TON_JETTON_ATTACH_GRAM=0.1\nTON_JETTON_ATTACH_SMOKE_OWNER_GRAM=0.05\nENABLE_TON_GASLESS=false\n' >> "$envfile"
 chmod 0600 "$envfile"
 
 # runtime.env is deliberately root-only (0600). Load it in a root subshell,
@@ -186,6 +190,12 @@ run_with_runtime_env(){
     runuser --preserve-environment -u deploy -- env PATH="$PATH" HOME=/home/deploy NODE_OPTIONS=--max-old-space-size=256 "$@"
   )
 }
+
+run_with_runtime_env bash -c '
+  set -Eeuo pipefail
+  cd "$1/backend"
+  node --input-type=module -e '\''import("./dist/deposits/service.js").then(async m=>{const c=m.config;const {attachForUser}=await import("./dist/ton/config.js");if(c.attachAmount!==100000000n||attachForUser(c,process.env.OWNER_TELEGRAM_ID)!==50000000n||attachForUser(c,"non-owner")!==100000000n)throw Error("Unsafe attach configuration");process.stdout.write("Owner-only attach canary confirmed\\n")})'\''
+' _ "$release"
 
 # TON Connect wallets resolve bridges and wallet icons on their own HTTPS hosts.
 # The manifest is fetched cross-origin by wallets, not by our authenticated API.
@@ -359,4 +369,4 @@ PY
 python3 "$release/ops/bot-config.py"
 
 trap - ERR INT TERM
-printf '\nГОТОВО: https://31.77.226.26/\nUSDT TON: публичное пополнение включено при успешно проверенном TON Center API key; отмена ожидающих счетов доступна пользователям.\nКоммит: %s\nБэкап: %s\nВывод проводится через поддержку вручную; доходность и заказы за баланс выключены. Заново откройте Mini App.\n' "$sha" "$backup"
+printf '\nГОТОВО: https://31.77.226.26/\nUSDT TON: публичный резерв не менялся; 0.05 GRAM доступно только владельцу для Mainnet smoke. Gasless выключен.\nКоммит: %s\nБэкап: %s\nВывод проводится через поддержку вручную; доходность и заказы за баланс выключены. Заново откройте Mini App.\n' "$sha" "$backup"
