@@ -19,8 +19,6 @@ model User {
   requests RentalRequest[]
   tickets Ticket[]
   entries LedgerEntry[]
-  testEntries TestLedgerEntry[]
-  testAssets TestAsset[]
   leases UserLease[]
   offerAcceptances OfferAcceptance[]
   tonWallet TonWallet?
@@ -42,12 +40,7 @@ model RentalRequest {
   closedAt DateTime?
   paymentStatus String @default("WAITING")
   isTestOrder Boolean @default(false)
-  testPriceMicros BigInt?
-  testTermDays Int?
-  testRateBps Int?
-  testOfferVersion String? @db.VarChar(64)
   userUnread Boolean @default(false)
-  testAsset TestAsset?
   status String @default("REQUESTED")
   idempotencyKey String
   createdAt DateTime @default(now())
@@ -96,35 +89,6 @@ model LedgerEntry {
   sourceId String @unique
   createdAt DateTime @default(now())
   @@index([userId, createdAt])
-}
-model TestLedgerEntry {
-  id String @id @default(uuid()) @db.Uuid
-  userId String @map("user_id")
-  user User @relation(fields:[userId], references:[id])
-  amountMicros BigInt @map("amount_micros")
-  kind String
-  sourceId String @unique @map("source_id")
-  actorId String @map("actor_id")
-  reason String
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  @@index([userId, createdAt])
-  @@map("test_ledger_entries")
-}
-model TestAsset {
-  id String @id @default(uuid()) @db.Uuid
-  requestId String @unique @map("request_id")
-  request RentalRequest @relation(fields:[requestId],references:[id])
-  userId String @map("user_id")
-  user User @relation(fields:[userId],references:[id])
-  nodeId String @map("node_id") @db.VarChar(64)
-  node GpuCatalog @relation(fields:[nodeId],references:[id])
-  priceMicros BigInt @map("price_micros")
-  termDays Int @map("term_days")
-  rateBps Int @map("rate_bps")
-  status String @default("AWAITING_ALLOCATION")
-  approvedAt DateTime @default(now()) @map("approved_at") @db.Timestamptz(3)
-  @@index([userId, approvedAt])
-  @@map("test_assets")
 }
 model Audit {
   id String @id @default(uuid())
@@ -176,7 +140,6 @@ model GpuCatalog {
   isExperimental Boolean @default(false) @map("is_experimental")
   contractReference String? @map("contract_reference")
   leases UserLease[]
-  testAssets TestAsset[]
   selectedBy User[] @relation("SelectedTariff")
   @@map("gpu_catalog")
 }

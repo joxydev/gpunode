@@ -61,13 +61,15 @@ test('incoming notification rejects fake master wallet, bounce, missing invoice 
  assert.equal(parseNotification({...tx,in_msg:{...tx.in_msg,message_content:{body:missing}}},config,jetton)?.invoiceId,null);
 });
 
-test('financial migration constrains duplicate transactions and preserves legacy test funds',async()=>{
+test('invoice migration accepts cancellation and still constrains duplicate transactions',async()=>{
  const db=new PGlite();const migration=(name:string)=>readFileSync(new URL('../prisma/migrations/'+name+'/migration.sql',import.meta.url),'utf8');
  try{
-  for(const name of ['202609130001_initial','202609130002_market','202609150001_browser_login','202609150002_user_agreement','202609150003_managed_requests','202609190001_owner_support','202609220001_public_offer','202609220002_owner_center','202609230001_user_language','202609230002_test_cycle','202609240001_ton_usdt_deposits'])await db.exec(migration(name));
-  await db.exec("INSERT INTO \"User\"(id,name) VALUES ('2','Test'); INSERT INTO test_ledger_entries(user_id,amount_micros,kind,source_id,actor_id,reason) VALUES ('2',50000000,'MANUAL_CREDIT','x','1','Test amount');");
+  for(const name of ['202609130001_initial','202609130002_market','202609150001_browser_login','202609150002_user_agreement','202609150003_managed_requests','202609190001_owner_support','202609220001_public_offer','202609220002_owner_center','202609230001_user_language','202609230002_test_cycle','202609240001_ton_usdt_deposits','202609240002_cancel_invoice'])await db.exec(migration(name));
+  await db.exec("INSERT INTO \"User\"(id,name) VALUES ('2','User');");
   await db.exec("INSERT INTO deposits(invoice_id,user_id,sender_address,recipient_address,jetton_master,requested_micros,query_id,expires_at) VALUES ('dep_test','2','0:0000000000000000000000000000000000000000000000000000000000000000','0:0000000000000000000000000000000000000000000000000000000000000000','0:0000000000000000000000000000000000000000000000000000000000000000',50000000,'7',now()+interval '20 minutes')");
   await assert.rejects(db.exec("INSERT INTO deposits(invoice_id,user_id,sender_address,recipient_address,jetton_master,requested_micros,query_id,expires_at) SELECT invoice_id,user_id,sender_address,recipient_address,jetton_master,requested_micros,query_id,expires_at FROM deposits"));
-  const result=await db.query<{n:bigint}>('SELECT count(*)::bigint AS n FROM test_ledger_entries');assert.equal(Number(result.rows[0].n),1);
+  await db.exec("UPDATE deposits SET status='CANCELLED' WHERE invoice_id='dep_test'");
+  const result=await db.query<{status:string}>("SELECT status FROM deposits WHERE invoice_id='dep_test'");assert.equal(result.rows[0].status,'CANCELLED');
+  await assert.rejects(db.exec("INSERT INTO test_ledger_entries(user_id,amount_micros,kind,source_id,actor_id,reason) VALUES ('2',1000000,'MANUAL_CREDIT','retired','1','No credits')"));
  }finally{await db.close()}
 });

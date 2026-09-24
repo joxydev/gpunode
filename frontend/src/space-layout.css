@@ -46,7 +46,6 @@ body{min-height:100dvh;background-color:#07080e;background-image:linear-gradient
  .app-shell .page-wallet{display:grid;grid-template-columns:minmax(0,1fr) minmax(295px,.63fr);gap:14px 20px;align-content:start}
  .page-wallet>.section-title:first-child{grid-column:1/-1;margin-bottom:4px}
  .page-wallet>.balance-card{grid-column:1;grid-row:2 / span 2;margin:0}
- .page-wallet>.wallet-test{grid-column:2;grid-row:2;margin:0}
  .page-wallet>.notice-block{grid-column:2;grid-row:3;margin:0}
  .page-wallet>.section-title:not(:first-child),.page-wallet>.request,.page-wallet>.empty,.page-wallet>footer{grid-column:1/-1}
  .page-wallet>.section-title:not(:first-child){margin-bottom:0}

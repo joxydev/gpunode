@@ -103,7 +103,7 @@ PY
 [[ -f $release/.aethermind-project && -f $release/docs/OFFER_IMPLEMENTATION.md && -f $release/docs/OWNER_CONTROL_CENTER.md ]] || fail 'В архиве нет документации панели владельца.'
 [[ -f $release/backend/src/offer.ts && -f $release/frontend/src/Offer.tsx && -f $release/frontend/src/Profile.tsx && -f $release/frontend/src/Referrals.tsx ]] || fail 'Неполный исходный код обновления.'
 [[ -f $release/backend/prisma/migrations/202609230001_user_language/migration.sql && -f $release/frontend/src/LanguagePicker.tsx && -f $release/frontend/src/LegalTranslations.tsx && -f $release/ops/vps-ci.py ]] || fail 'Нет языковой миграции, перевода документов или VPS CI.'
-[[ -f $release/backend/prisma/migrations/202609230002_test_cycle/migration.sql && -f $release/backend/test/test-cycle.test.ts && -f $release/docs/TEST_ORDER_CYCLE.md ]] || fail 'Нет миграции или проверок тестовых заказов.'
+[[ -f $release/backend/prisma/migrations/202609240002_cancel_invoice/migration.sql ]] || fail 'Нет миграции отмены счёта.'
 [[ -f $release/frontend/src/space-layout.css && -f $release/frontend/public/assets/cosmic-field.svg ]] || fail 'Нет адаптивной компоновки или космического фона.'
 [[ -f $release/backend/prisma/migrations/202609240001_ton_usdt_deposits/migration.sql && -f $release/backend/src/deposits/watcher.ts && -f $release/backend/test/ton-payments.test.ts && -f $release/frontend/public/tonconnect-manifest.json && -f $release/frontend/src/WalletView.tsx ]] || fail 'Отсутствует полный модуль USDT TON.'
 printf '%s  %s\n' 'b21177972dbdeedbea731e826b070ff7fb148ec1f96e7892536e67e40732ce88' "$release/frontend/public/documents/public-offer-aethermind.pdf" | sha256sum --check --status || fail 'PDF оферты отличается от утверждённого документа.'
@@ -138,7 +138,7 @@ grep -Rqs 'Choose your language' frontend/dist/assets/*.js
 grep -Rqs 'Alegeți limba' frontend/dist/assets/*.js
 grep -Rqs 'User Agreement' frontend/dist/assets/*.js
 grep -Rqs 'Мои активы' frontend/dist/assets/*.js
-grep -Rqs 'Тестовый баланс' frontend/dist/assets/*.js
+grep -Rqs 'Отменить счёт' frontend/dist/assets/*.js
 grep -Rqs 'cosmic-field.svg' frontend/dist/assets/*.css
 grep -Rqs 'Подключить TON-кошелёк' frontend/dist/assets/*.js
 BUILD
@@ -170,7 +170,7 @@ if ! grep -Eq '^TONCENTER_API_KEY=[A-Za-z0-9_-]{8,200}$' "$envfile"; then
     unset ton_key
   fi
 fi
-printf 'TON_NETWORK=mainnet\nTON_CHAIN_ID=-239\nTON_WALLET_VERSION=W5\nAETHERMIND_TREASURY_ADDRESS=UQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH\nUSDT_TON_MASTER=EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs\nTONCENTER_API_BASE=https://toncenter.com/api/v3\nENABLE_TON_USDT_DEPOSITS=false\n' >> "$envfile"
+printf 'TON_NETWORK=mainnet\nTON_CHAIN_ID=-239\nTON_WALLET_VERSION=W5\nAETHERMIND_TREASURY_ADDRESS=UQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH\nUSDT_TON_MASTER=EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs\nTONCENTER_API_BASE=https://toncenter.com/api/v3\nENABLE_TON_USDT_DEPOSITS=true\n' >> "$envfile"
 env_changed=1
 chmod 0600 "$envfile"
 
@@ -227,6 +227,8 @@ if grep -Eq '^TONCENTER_API_KEY=[A-Za-z0-9_-]{8,200}$' "$envfile"; then
     sleep 5
   done
   ((getter_ok)) || fail 'TON Center не подтвердил USDT Jetton Wallet treasury; публичный доступ остался закрыт.'
+else
+  fail 'Публичный запуск невозможен: TON Center API key отсутствует в runtime.env.'
 fi
 
 note 'Переключаю релиз и проверяю HTTPS.'
@@ -313,7 +315,7 @@ assert market['version'] == 'offer-88-2026-ai' and market['purchasesEnabled'] is
 assert market['nodes'][0]['dailyUsdt'] == '0.750000'
 assert market['nodes'][3]['dailyUsdt'] is None
 assert offer['version'] == '88-2026-AI-2026-09-21'
-assert offer['paymentsEnabled'] is False and offer['accrualEnabled'] is False
+assert offer['paymentsEnabled'] is True and offer['accrualEnabled'] is False
 manifest = json.loads((root / 'tonconnect-manifest.json').read_text())
 assert manifest['url'] == 'https://31.77.226.26' and manifest['iconUrl'].endswith('/assets/icons/icon-180.png')
 assert (root / 'tonconnect-icon.png').read_bytes().startswith(b'\x89PNG')
@@ -338,8 +340,8 @@ done
 [[ $(curl -sS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 -o /dev/null -w '%{http_code}' -X POST https://31.77.226.26/api/profile/tariff) == 401 ]]
 [[ $(curl -sS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 -o /dev/null -w '%{http_code}' https://31.77.226.26/api/admin/users) == 401 ]]
 [[ $(curl -sS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 -o /dev/null -w '%{http_code}' https://31.77.226.26/api/admin/tickets) == 401 ]]
-[[ $(curl -sS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' https://31.77.226.26/api/test/orders) == 401 ]]
-[[ $(curl -sS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' https://31.77.226.26/api/admin/users/11111/test-credit) == 401 ]]
+[[ $(curl -sS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' https://31.77.226.26/api/test/orders) == 404 ]]
+[[ $(curl -sS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' https://31.77.226.26/api/admin/users/11111/test-credit) == 404 ]]
 for url in /api/v1/wallet /api/v1/wallet/transactions /api/v1/deposits /api/v1/admin/deposits /api/v1/ton/health; do
   [[ $(curl -sS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 -o /dev/null -w '%{http_code}' "https://31.77.226.26$url") == 401 ]] || fail "Authorization check failed: $url"
 done
@@ -357,4 +359,4 @@ PY
 python3 "$release/ops/bot-config.py"
 
 trap - ERR INT TERM
-printf '\nГОТОВО: https://31.77.226.26/\nUSDT TON: код и тесты установлены; доступ владельцу после настройки ключа. Публичное пополнение закрыто до реального Mainnet smoke-test.\nКоммит: %s\nБэкап: %s\nВывод и доходность выключены. Заново откройте Mini App.\n' "$sha" "$backup"
+printf '\nГОТОВО: https://31.77.226.26/\nUSDT TON: публичное пополнение включено при успешно проверенном TON Center API key; отмена ожидающих счетов доступна пользователям.\nКоммит: %s\nБэкап: %s\nВывод проводится через поддержку вручную; доходность и заказы за баланс выключены. Заново откройте Mini App.\n' "$sha" "$backup"

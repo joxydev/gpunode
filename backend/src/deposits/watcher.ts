@@ -63,7 +63,7 @@ export async function scanOnce(){
  const cursor=await db.tonWatcherCursor.findUnique({where:{id:'TON_USDT'}});
  const now=Math.floor(Date.now()/1000);
  // Re-scan a one-hour overlap; pending invoices keep their full history in the search window.
- const oldest=await db.tonDeposit.findFirst({where:{status:{in:['PENDING','EXPIRED','DETECTED','CONFIRMED']},createdAt:{gte:new Date(Date.now()-30*86400000)}},orderBy:{createdAt:'asc'},select:{createdAt:true}});
+ const oldest=await db.tonDeposit.findFirst({where:{status:{in:['PENDING','CANCELLED','EXPIRED','DETECTED','CONFIRMED']},createdAt:{gte:new Date(Date.now()-30*86400000)}},orderBy:{createdAt:'asc'},select:{createdAt:true}});
  const start=Math.max(1,Math.min((cursor?.lastUtime||now)-3600,oldest?Math.floor(oldest.createdAt.getTime()/1000)-300:now));
  let count=0,highest=cursor?.lastUtime||start;
  for(let offset=0;offset<10000;offset+=100){

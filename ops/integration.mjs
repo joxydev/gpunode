@@ -48,38 +48,12 @@ try{
  const refBefore=(await call('/me',user)).data.referrals;assert.equal(refBefore.total,1);assert.equal(refBefore.items[0].stage,'OFFER_ACCEPTED');assert.equal(refBefore.rewardConfigured,false);assert.ok(!JSON.stringify(refBefore).includes('44444'));
  await call('/profile/tariff',referred,{nodeId:'NODE_A100'});assert.equal((await call('/me',user)).data.referrals.items[0].stage,'TARIFF_SELECTED');
 
- // Separate, auditable test money: only owner can credit, ordering reserves atomically,
- // rejection refunds once, and approval creates an allocation record without a live lease.
- assert.equal((await call('/admin/users/22222/test-credit',user,{amount:'50',reason:'Testing',idempotencyKey:randomUUID()})).status,403);
- assert.equal((await call('/admin/users/22222/test-credit',owner,{amount:'1.5',reason:'Testing',idempotencyKey:randomUUID()})).status,400);
- assert.equal((await call('/test/orders',user,{idempotencyKey:randomUUID()})).status,400);
- const creditKey=randomUUID(),creditBody={amount:'100',reason:'Owner integration test',idempotencyKey:creditKey};
- assert.equal((await call('/admin/users/999888777/test-credit',owner,creditBody)).status,404,'cannot credit missing user');
- const credited=await call('/admin/users/22222/test-credit',owner,creditBody);assert.equal(credited.status,201);assert.equal(credited.data.testBalance,'100.000000');
- assert.equal((await call('/admin/users/22222/test-credit',owner,creditBody)).data.replayed,true);
- assert.equal((await call('/admin/users/22222/test-credit',owner,{...creditBody,amount:'200'})).status,400);
- assert.equal((await call('/me',user)).data.balance,'0.000000');
- const orderKey=randomUUID(),orderBody={idempotencyKey:orderKey};
- const [order,again]=await Promise.all([call('/test/orders',user,orderBody),call('/test/orders',user,orderBody)]);
- assert.equal(order.status,201);assert.equal(again.status,201);assert.equal(order.data.id,again.data.id);
- assert.equal(order.data.testPriceUsdt,'50.000000');assert.equal(order.data.paymentStatus,'TEST_CREDIT');
- assert.equal((await call('/me',user)).data.testBalance,'50.000000');
- assert.equal((await call('/test/orders',user,{idempotencyKey:randomUUID()})).status,400);
- assert.equal((await call('/profile/tariff',user,{nodeId:'NODE_A100'})).status,400);
- assert.equal((await call('/admin',owner)).data.pendingTestOrders,1);
- const reviewed=await call('/admin/requests/'+order.data.id,owner,{status:'REVIEWED'},'PATCH');assert.equal(reviewed.status,200);
- const approved=await call('/admin/requests/'+order.data.id,owner,{status:'CLOSED',decision:'ACCEPTED',closureReason:'Test allocation approved'},'PATCH');assert.equal(approved.status,200);
- assert.equal((await call('/admin/requests/'+order.data.id,owner,{status:'CLOSED',decision:'ACCEPTED',closureReason:'Test allocation approved'},'PATCH')).status,200);
- const assetMe=await call('/me',user);assert.equal(assetMe.status,200);assert.equal(assetMe.data.testAssets.length,1);assert.equal(assetMe.data.testAssets[0].status,'AWAITING_ALLOCATION');assert.equal(assetMe.data.notifications.unreadOrders,1);assert.equal(assetMe.data.activeNodes.length,0);assert.equal(assetMe.data.balance,'0.000000');
- assert.equal((await call('/test/orders/read',user,{})).status,201);assert.equal((await call('/me',user)).data.notifications.unreadOrders,0);
- assert.equal((await call('/admin/requests?payment=TEST_CREDIT',owner)).data.items[0].isTestOrder,true);
- await call('/profile/tariff',other,{nodeId:'NODE_A100'});
- assert.equal((await call('/admin/users/33333/test-credit',owner,{amount:'300',reason:'Test refund',idempotencyKey:randomUUID()})).status,201);
- const refundOrder=await call('/test/orders',other,{idempotencyKey:randomUUID()});assert.equal(refundOrder.status,201);assert.equal((await call('/me',other)).data.testBalance,'0.000000');
- const refused=await call('/admin/requests/'+refundOrder.data.id,owner,{status:'CLOSED',decision:'REJECTED',closureReason:'Test rejection'},'PATCH');assert.equal(refused.status,200);assert.equal((await call('/me',other)).data.testBalance,'300.000000');
- assert.equal((await call('/admin/requests/'+refundOrder.data.id,owner,{status:'CLOSED',decision:'REJECTED',closureReason:'Test rejection'},'PATCH')).status,200);
- assert.equal((await call('/me',other)).data.testBalance,'300.000000');assert.equal((await call('/me',other)).data.testAssets.length,0);
- assert.equal((await call('/withdrawals',other,{})).status,503);
+ // Old simulated balances and orders are no longer exposed or writable.
+ assert.equal((await call('/test/orders',user,{idempotencyKey:randomUUID()})).status,404);
+ assert.equal((await call('/admin/users/22222/test-credit',owner,{amount:'50',reason:'Legacy',idempotencyKey:randomUUID()})).status,404);
+ const publicAccount=(await call('/me',user)).data;
+ assert.equal('testBalance' in publicAccount,false);assert.equal('testAssets' in publicAccount,false);
+ assert.equal((await call('/withdrawals',other,{})).status,503,'payouts remain manual via support');
 
  const fixture=new pg.Client({connectionString:process.env.DATABASE_URL});await fixture.connect();
  await fixture.query('INSERT INTO "LedgerEntry"(id,"userId","amountMicros",kind,"sourceId") VALUES ($1,$2,$3,$4,$5)',[randomUUID(),'22222','12000000','DEPOSIT_CONFIRMED','ci-deposit-'+randomUUID()]);
@@ -112,7 +86,7 @@ try{
  const closedThread=await call('/support/'+ticket.data.id,user);assert.equal(closedThread.data.status,'CLOSED');assert.deepEqual(closedThread.data.messages.map(message=>message.authorType),['USER','OWNER','USER']);
  const burst=await Promise.all(Array.from({length:7},()=>call('/support',other,{message:'Concurrent ticket test'})));assert.equal(burst.filter(r=>r.status===201).length,5);assert.equal(burst.filter(r=>r.status===400).length,2);
  assert.equal((await call('/payments',user,{})).status,503);assert.equal((await call('/withdrawals',user,{})).status,503);assert.equal((await call('/me',user)).data.balance,'12.000000');
- // TON deposit APIs stay closed to public users until the owner performs a real Mainnet smoke test.
+ // The isolated CI API has no live TON Center key; invoice creation remains gated.
  for(const path of ['/v1/wallet','/v1/wallet/transactions','/v1/deposits','/v1/admin/deposits','/v1/admin/deposits/unmatched','/v1/ton/health'])assert.equal((await call(path)).status,401);
  assert.equal((await call('/v1/admin/deposits',user)).status,403);
  assert.equal((await call('/v1/wallet',user)).data.balance,'12.000000');
@@ -138,7 +112,7 @@ try{
   const settled=(await call('/v1/deposits/'+newDeposit.id,user)).data;assert.equal(settled.status,'CREDITED');assert.equal(settled.amount,'50.000000');
   assert.equal((await call('/v1/wallet',user)).data.balance,'62.000000');
   assert.equal((await call('/me',user)).data.journey[2].state,'DONE');
-  assert.equal((await call('/me',user)).data.testBalance,'50.000000');
+  assert.equal('testBalance' in (await call('/me',user)).data,false);
   assert.equal((await call('/v1/deposits/'+newDeposit.id,other)).status,404);
   assert.equal((await call('/v1/admin/deposits',owner)).data.items[0].status,'CREDITED');
   assert.equal((await call('/v1/admin/deposits/unmatched',owner)).data.total,1);
@@ -152,6 +126,13 @@ try{
   const late=await tonDb.tonDeposit.create({data:{invoiceId:'dep_'+randomUUID().replaceAll('-','').slice(0,32),userId:'22222',senderAddress:sender,recipientAddress:config.treasury.toRawString(),jettonMaster:master,requestedMicros:50000000n,queryId:'44',expiresAt:new Date(Date.now()-300000)}});
   assert.equal(await applyNotification(tonDb,{...note,invoiceId:late.invoiceId,txHash:'c'.repeat(64),queryId:'44'}),'MANUAL_REVIEW');
   assert.equal((await call('/v1/wallet',user)).data.balance,'62.000000');
+  const cancelled=await tonDb.tonDeposit.create({data:{invoiceId:'dep_'+randomUUID().replaceAll('-','').slice(0,32),userId:'22222',senderAddress:sender,recipientAddress:config.treasury.toRawString(),jettonMaster:master,requestedMicros:1000000n,queryId:'45',expiresAt:new Date(Date.now()+1200000)}});
+  assert.equal((await call('/v1/deposits/'+cancelled.id+'/cancel',other,{})).status,404,'no cancellation by other user');
+  assert.equal((await call('/v1/deposits/'+cancelled.id+'/cancel',user,{})).data.status,'CANCELLED');
+  assert.equal((await call('/v1/deposits/'+cancelled.id+'/cancel',user,{})).data.status,'CANCELLED','idempotent cancellation');
+  assert.equal(await applyNotification(tonDb,{...note,invoiceId:cancelled.invoiceId,txHash:'d'.repeat(64),queryId:'45',amount:1000000n}),'CREDITED','a transfer to a cancelled invoice is still credited');
+  assert.equal((await call('/v1/wallet',user)).data.balance,'63.000000');
+  assert.equal((await call('/v1/deposits/'+cancelled.id+'/cancel',user,{})).status,400);
  }finally{await tonDb.$disconnect()}
  console.log('Integration checks passed: previous tests plus TON wallet access, proof challenge, amount mismatch, foreign sender, deposit ledger and tenfold idempotent replay.');
 }finally{if(child.exitCode===null&&child.signalCode===null){const done=new Promise(r=>child.once('exit',r));child.kill('SIGTERM');const timer=setTimeout(()=>child.kill('SIGKILL'),3000);await done;clearTimeout(timer)}}

@@ -13,14 +13,13 @@ export const offerTariffs=[
 
 export type JourneyState='DONE'|'CURRENT'|'WAITING'|'LOCKED';
 export type JourneyStep={id:'REGISTERED'|'TARIFF'|'FUNDED'|'ORDERED'|'WITHDRAW';title:string;description:string;state:JourneyState;available:boolean};
-export function journey(input:{selected:boolean;funded:boolean;ordered:boolean;epochComplete:boolean;pendingOrder?:boolean;realFunded?:boolean;testFunded?:boolean}):JourneyStep[]{
-  const {selected,funded,ordered,epochComplete,pendingOrder,realFunded}=input;
-  const testFunded=input.testFunded??(funded&&!realFunded);
+export function journey(input:{selected:boolean;funded:boolean;ordered:boolean;epochComplete:boolean;pendingOrder?:boolean}):JourneyStep[]{
+  const {selected,funded,ordered,epochComplete,pendingOrder}=input;
   return [
-    {id:'REGISTERED',title:'Регистрация',description:'Профиль Telegram создан и защищён.',state:'DONE',available:true},
-    {id:'TARIFF',title:'Выбор тарифа',description:selected?'Тариф сохранён в профиле.':'Выберите фиксированную категорию по оферте.',state:selected?'DONE':'CURRENT',available:true},
-    {id:'FUNDED',title:'Пополнение',description:realFunded?'Подтверждённое пополнение USDT в сети TON.':funded?'Тестовых средств достаточно для выбранного тарифа.':'Пополнение USDT доступно через кошелёк TON после активации платежей.',state:funded?'DONE':selected?'CURRENT':'WAITING',available:false},
-    {id:'ORDERED',title:'Заказать тариф',description:ordered?'Заказ одобрен; назначение оборудования ожидается.':pendingOrder?'Заявка передана владельцу и ожидает решения.':realFunded&&!testFunded?'Реальные заказы будут подключены следующим этапом. Баланс не списывается.':'Доступно при достаточном тестовом балансе.',state:ordered?'DONE':pendingOrder?'WAITING':(funded&&(!realFunded||testFunded))?'CURRENT':'WAITING',available:Boolean(testFunded)&&!pendingOrder&&!ordered},
-    {id:'WITHDRAW',title:'Вывести средства',description:epochComplete?'Epoch завершён; вывод станет доступен после подключения выплат.':'После окончания срока выбранного тарифа.',state:epochComplete?'CURRENT':'LOCKED',available:false}
+   {id:'REGISTERED',title:'Регистрация',description:'Профиль Telegram создан и защищён.',state:'DONE',available:true},
+   {id:'TARIFF',title:'Выбор тарифа',description:selected?'Тариф сохранён в профиле.':'Выберите фиксированную категорию по оферте.',state:selected?'DONE':'CURRENT',available:true},
+   {id:'FUNDED',title:'Пополнение',description:funded?'Подтверждённый баланс USDT в сети TON.':'Пополните кошелёк через TON Connect.',state:funded?'DONE':selected?'CURRENT':'WAITING',available:true},
+   {id:'ORDERED',title:'Заказать тариф',description:ordered?'Оборудование назначено.':pendingOrder?'Заявка ожидает решения оператора.':'Заказы тарифов подключаются отдельным этапом; средства остаются на балансе.',state:ordered?'DONE':'WAITING',available:false},
+   {id:'WITHDRAW',title:'Вывести средства',description:epochComplete?'По завершении Epoch запрос на выплату рассматривается оператором вручную.':'После окончания срока выбранного тарифа, вручную через поддержку.',state:epochComplete?'CURRENT':'LOCKED',available:false}
   ];
 }

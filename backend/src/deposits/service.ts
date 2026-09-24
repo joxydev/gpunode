@@ -16,7 +16,7 @@ export function safeDeposit(row:TonDeposit){return {id:row.id,invoiceId:row.invo
 
 export class DepositsService {
  constructor(readonly db:PrismaClient){}
- allowed(userId:string){return config.enabled||userId===process.env.OWNER_TELEGRAM_ID;}
+ allowed(_userId:string){return config.enabled;}
  async challenge(userId:string){
   const window=new Date(Date.now()-600000);
   if(await this.db.tonProofChallenge.count({where:{userId,createdAt:{gte:window}}})>=5)throw new BadRequestException('Слишком много подключений кошелька. Повторите позже.');
@@ -46,7 +46,7 @@ export class DepositsService {
   return {asset:'USDT',network:'TON',balance:usdtString(balance._sum.amountMicros||0n),connectedWallet:wallet?.verified?friendly(wallet.address):null,rawAddress:wallet?.verified?wallet.address:null,verified:Boolean(wallet?.verified),depositsEnabled:this.allowed(userId)&&Boolean(config.apiKey),publicDepositsEnabled:config.enabled,minAmount:usdtString(config.min),maxAmount:usdtString(config.max),pending};
  }
  async create(userId:string,body:Record<string,unknown>){
-  if(!this.allowed(userId))throw new ServiceUnavailableException('Пополнение пока доступно только владельцу для проверки Mainnet.');
+  if(!this.allowed(userId))throw new ServiceUnavailableException('Пополнение временно недоступно.');
   if(!config.apiKey)throw new ServiceUnavailableException('TON Center ещё не настроен.');
   if(!body||typeof body!=='object'||body.asset!=='USDT'||body.network!=='TON'||Object.keys(body).some(key=>!['amount','asset','network'].includes(key)))throw new BadRequestException('Принимается только USDT в сети TON.');
   let amount:bigint;
@@ -66,10 +66,21 @@ export class DepositsService {
    if(!currentWallet?.verified||currentWallet.address!==sender.toRawString())throw new ForbiddenException('Кошелёк был изменён. Подключите его ещё раз.');
    const hour=new Date(Date.now()-3600000);
    if(await tx.tonDeposit.count({where:{userId,createdAt:{gte:hour}}})>=5)throw new BadRequestException('Слишком много счетов за час.');
-   if(await tx.tonDeposit.count({where:{userId,status:'PENDING',expiresAt:{gt:new Date()}}})>=3)throw new BadRequestException('Сначала завершите существующий платёж.');
+   if(await tx.tonDeposit.count({where:{userId,status:'PENDING',expiresAt:{gt:new Date()}}})>=1)throw new BadRequestException('Сначала завершите или отмените предыдущий счёт.');
    return tx.tonDeposit.create({data:{invoiceId,userId,network:'TON',asset:'USDT',senderAddress:sender.toRawString(),recipientAddress:config.treasury.toRawString(),jettonMaster:config.master.toRawString(),requestedMicros:amount,expiresAt:new Date(Date.now()+maxAge),queryId}});
   });
   return {deposit:safeDeposit(row),transaction:jettonPayment(sender,config.treasury,senderJetton,amount,queryId,invoiceId,row.expiresAt)};
+ }
+ async cancel(userId:string,id:string){
+  return this.db.$transaction(async tx=>{
+   await tx.$queryRaw`SELECT id FROM deposits WHERE id=${id}::uuid FOR UPDATE`;
+   const row=await tx.tonDeposit.findUnique({where:{id}});
+   if(!row||row.userId!==userId)throw new NotFoundException('Счёт не найден.');
+   if(row.status==='CANCELLED')return safeDeposit(row);
+   if(row.status!=='PENDING'||row.txHash||row.detectedAt)throw new BadRequestException('Платёж уже обрабатывается и не может быть отменён.');
+   const updated=await tx.tonDeposit.update({where:{id},data:{status:'CANCELLED'}});
+   return safeDeposit(updated);
+  });
  }
  async list(userId:string){return (await this.db.tonDeposit.findMany({where:{userId},orderBy:{createdAt:'desc'},take:50})).map(safeDeposit);}
  async get(userId:string,id:string){
