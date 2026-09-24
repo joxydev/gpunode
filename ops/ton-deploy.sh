@@ -174,6 +174,19 @@ printf 'TON_NETWORK=mainnet\nTON_CHAIN_ID=-239\nTON_WALLET_VERSION=W5\nAETHERMIN
 env_changed=1
 chmod 0600 "$envfile"
 
+# runtime.env is deliberately root-only (0600). Load it in a root subshell,
+# then pass the exported variables to the unprivileged deploy process. Neither
+# Prisma nor the TON read check needs direct access to the secrets file.
+run_with_runtime_env(){
+  (
+    set -a
+    # shellcheck disable=SC1090
+    source "$envfile"
+    set +a
+    runuser --preserve-environment -u deploy -- env PATH="$PATH" HOME=/home/deploy NODE_OPTIONS=--max-old-space-size=256 "$@"
+  )
+}
+
 # TON Connect wallets resolve bridges and wallet icons on their own HTTPS hosts.
 # The manifest is fetched cross-origin by wallets, not by our authenticated API.
 python3 - "$nginx_conf" <<'PY'
@@ -197,21 +210,20 @@ file.write_text(source)
 PY
 nginx -t
 
-runuser -u deploy -- env PATH="$PATH" HOME=/home/deploy NODE_OPTIONS=--max-old-space-size=256 bash -c '
+run_with_runtime_env bash -c '
   set -Eeuo pipefail
-  set -a; source "$1"; set +a
-  cd "$2"
+  cd "$1"
   npm run db:migrate
-' _ "$envfile" "$release"
+' _ "$release"
 
 if grep -Eq '^TONCENTER_API_KEY=[A-Za-z0-9_-]{8,200}$' "$envfile"; then
   note 'Проверяю master getter и индексатор TON Center v3 для treasury.'
   getter_ok=0
   for _attempt in 1 2 3; do
-    if runuser -u deploy -- env PATH="$PATH" HOME=/home/deploy bash -c '
-      set -Eeuo pipefail; set -a; source "$1"; set +a; cd "$2/backend"
+    if run_with_runtime_env bash -c '
+      set -Eeuo pipefail; cd "$1/backend"
       node --input-type=module -e "import(\"./dist/deposits/service.js\").then(async m=>{try{const a=await m.center.jettonWallet(m.config.treasury);if(!a)throw Error();const t=Math.floor(Date.now()/1000)-300;await m.center.transactions(t,0,1);await m.center.jettonTransfers(t,0,1);process.stdout.write(\"TON master and v3 indexes verified\\n\")}catch{process.stderr.write(\"TON Center unavailable\\n\");process.exitCode=1}})"
-    ' _ "$envfile" "$release"; then getter_ok=1; break; fi
+    ' _ "$release"; then getter_ok=1; break; fi
     sleep 5
   done
   ((getter_ok)) || fail 'TON Center не подтвердил USDT Jetton Wallet treasury; публичный доступ остался закрыт.'
