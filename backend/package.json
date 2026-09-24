@@ -16,6 +16,7 @@
     "@nestjs/platform-fastify": "^11.1.6",
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
+    "@ton/ton": "^16.3.0",
     "dotenv": "^17.2.2",
     "pg": "^8.16.3",
     "reflect-metadata": "^0.2.2",

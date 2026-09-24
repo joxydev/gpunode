@@ -23,6 +23,10 @@ model User {
   testAssets TestAsset[]
   leases UserLease[]
   offerAcceptances OfferAcceptance[]
+  tonWallet TonWallet?
+  tonProofChallenges TonProofChallenge[]
+  deposits TonDeposit[]
+  walletLedger WalletLedger[]
   @@index([referrerId])
   @@index([selectedTariffId])
 }
@@ -206,4 +210,96 @@ model UserLease {
   @@unique([userId, idempotencyKey])
   @@index([userId, nodeId, status])
   @@map("user_leases")
+}
+
+model TonWallet {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @unique @map("user_id")
+  user User @relation(fields: [userId], references: [id])
+  network String @default("TON")
+  address String @unique @db.VarChar(70)
+  walletApp String? @map("wallet_app") @db.VarChar(100)
+  verified Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastConnectedAt DateTime @default(now()) @map("last_connected_at") @db.Timestamptz(3)
+  @@map("user_wallets")
+}
+
+model TonProofChallenge {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id")
+  user User @relation(fields: [userId], references: [id])
+  nonceHash String @unique @map("nonce_hash") @db.VarChar(64)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  @@index([userId, createdAt])
+  @@map("ton_proof_challenges")
+}
+
+model TonDeposit {
+  id String @id @default(uuid()) @db.Uuid
+  invoiceId String @unique @map("invoice_id") @db.VarChar(64)
+  userId String @map("user_id")
+  user User @relation(fields: [userId], references: [id])
+  network String @default("TON")
+  asset String @default("USDT")
+  senderAddress String @map("sender_address") @db.VarChar(70)
+  recipientAddress String @map("recipient_address") @db.VarChar(70)
+  jettonMaster String @map("jetton_master") @db.VarChar(70)
+  requestedMicros BigInt @map("requested_micros")
+  receivedMicros BigInt? @map("received_micros")
+  status String @default("PENDING") @db.VarChar(32)
+  txHash String? @unique @map("tx_hash") @db.VarChar(64)
+  traceId String? @map("trace_id")
+  queryId String @map("query_id") @db.VarChar(24)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  detectedAt DateTime? @map("detected_at") @db.Timestamptz(3)
+  confirmedAt DateTime? @map("confirmed_at") @db.Timestamptz(3)
+  creditedAt DateTime? @map("credited_at") @db.Timestamptz(3)
+  ownerNotifiedAt DateTime? @map("owner_notified_at") @db.Timestamptz(3)
+  metadata Json @default("{}") @db.JsonB
+  ledger WalletLedger?
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
+  @@map("deposits")
+}
+
+model WalletLedger {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id")
+  user User @relation(fields: [userId], references: [id])
+  depositId String @unique @map("deposit_id") @db.Uuid
+  deposit TonDeposit @relation(fields: [depositId], references: [id])
+  type String @default("DEPOSIT")
+  asset String @default("USDT")
+  amountMicros BigInt @map("amount_micros")
+  balanceBefore BigInt @map("balance_before")
+  balanceAfter BigInt @map("balance_after")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  metadata Json @default("{}") @db.JsonB
+  @@index([userId, createdAt])
+  @@map("wallet_ledger")
+}
+
+model TonWatcherCursor {
+  id String @id @db.VarChar(30)
+  lastUtime Int @map("last_utime")
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  @@map("ton_watcher_cursors")
+}
+
+model UnmatchedTonDeposit {
+  id String @id @default(uuid()) @db.Uuid
+  txHash String @unique @map("tx_hash") @db.VarChar(64)
+  invoiceId String? @map("invoice_id") @db.VarChar(64)
+  senderAddress String? @map("sender_address") @db.VarChar(70)
+  amountMicros BigInt? @map("amount_micros")
+  reason String @db.VarChar(100)
+  traceId String? @map("trace_id")
+  detectedAt DateTime @default(now()) @map("detected_at") @db.Timestamptz(3)
+  metadata Json @default("{}") @db.JsonB
+  @@index([detectedAt])
+  @@map("unmatched_ton_deposits")
 }

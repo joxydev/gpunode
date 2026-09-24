@@ -112,5 +112,46 @@ try{
  const closedThread=await call('/support/'+ticket.data.id,user);assert.equal(closedThread.data.status,'CLOSED');assert.deepEqual(closedThread.data.messages.map(message=>message.authorType),['USER','OWNER','USER']);
  const burst=await Promise.all(Array.from({length:7},()=>call('/support',other,{message:'Concurrent ticket test'})));assert.equal(burst.filter(r=>r.status===201).length,5);assert.equal(burst.filter(r=>r.status===400).length,2);
  assert.equal((await call('/payments',user,{})).status,503);assert.equal((await call('/withdrawals',user,{})).status,503);assert.equal((await call('/me',user)).data.balance,'12.000000');
- console.log('Integration checks passed: auth, persistent language preference, agreements, offer, owner users, equipment requests, threaded support, isolated test credit, order/approval/refund, notifications and payment gates.');
+ // TON deposit APIs stay closed to public users until the owner performs a real Mainnet smoke test.
+ for(const path of ['/v1/wallet','/v1/wallet/transactions','/v1/deposits','/v1/admin/deposits','/v1/admin/deposits/unmatched','/v1/ton/health'])assert.equal((await call(path)).status,401);
+ assert.equal((await call('/v1/admin/deposits',user)).status,403);
+ assert.equal((await call('/v1/wallet',user)).data.balance,'12.000000');
+ assert.equal((await call('/v1/deposits',user,{asset:'USDT',network:'TON',amount:'50'})).status,503);
+ assert.equal((await call('/v1/deposits',owner,{asset:'USDT',network:'TON',amount:'50'})).status,503,'no provider key in CI');
+ const challenge=await call('/v1/ton/proof/payload',user,{});assert.equal(challenge.status,201);assert.equal(challenge.data.payload.length,64);
+ assert.equal((await call('/v1/ton/proof/verify',user,{network:'-3',address:'invalid',proof:{payload:challenge.data.payload}})).status,400);
+ assert.equal((await call('/v1/deposits/'+randomUUID(),user)).status,404);
+ const {PrismaClient}=await import('@prisma/client');const {PrismaPg}=await import('@prisma/adapter-pg');
+ const {applyNotification}=await import('../backend/dist/deposits/watcher.js');
+ const tonDb=new PrismaClient({adapter:new PrismaPg({connectionString:process.env.DATABASE_URL,max:2})});
+ try{
+  const now=Math.floor(Date.now()/1000),invoiceId='dep_'+randomUUID().replaceAll('-','').slice(0,32);
+  const sender='0:'+'a'.repeat(64),recipient='0:11c6c1ab1ed7a4b510a9032e3f4afa1c020fe5a5bd19f4e6278c89270afa9082';
+  const master=(await import('@ton/ton')).Address.parse('EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs').toRawString();
+  const config=(await import('../backend/dist/ton/config.js')).tonConfig();
+  const newDeposit=await tonDb.tonDeposit.create({data:{invoiceId,userId:'22222',senderAddress:sender,recipientAddress:config.treasury.toRawString(),jettonMaster:master,requestedMicros:50000000n,queryId:'42',expiresAt:new Date(Date.now()+1200000)}});
+  const note={txHash:'a'.repeat(64),traceId:null,time:now,sender,amount:50000000n,invoiceId,queryId:'42'};
+  assert.equal(await applyNotification(tonDb,{...note,sender:'0:'+'b'.repeat(64)}),'UNMATCHED','other wallet cannot claim invoice');
+  assert.equal((await call('/v1/deposits/'+newDeposit.id,user)).data.status,'PENDING');
+  assert.equal(await applyNotification(tonDb,note),'CREDITED');
+  for(let i=0;i<10;i++)assert.equal(await applyNotification(tonDb,note),'ALREADY_CREDITED');
+  const settled=(await call('/v1/deposits/'+newDeposit.id,user)).data;assert.equal(settled.status,'CREDITED');assert.equal(settled.amount,'50.000000');
+  assert.equal((await call('/v1/wallet',user)).data.balance,'62.000000');
+  assert.equal((await call('/me',user)).data.journey[2].state,'DONE');
+  assert.equal((await call('/me',user)).data.testBalance,'50.000000');
+  assert.equal((await call('/v1/deposits/'+newDeposit.id,other)).status,404);
+  assert.equal((await call('/v1/admin/deposits',owner)).data.items[0].status,'CREDITED');
+  assert.equal((await call('/v1/admin/deposits/unmatched',owner)).data.total,1);
+  const rows=await tonDb.walletLedger.findMany({where:{depositId:newDeposit.id}});assert.equal(rows.length,1);assert.equal(rows[0].balanceBefore,12000000n);assert.equal(rows[0].balanceAfter,62000000n);
+  const replayInvoice=await tonDb.tonDeposit.create({data:{invoiceId:'dep_'+randomUUID().replaceAll('-','').slice(0,32),userId:'22222',senderAddress:sender,recipientAddress:config.treasury.toRawString(),jettonMaster:master,requestedMicros:50000000n,queryId:'42',expiresAt:new Date(Date.now()+1200000)}});
+  assert.equal(await applyNotification(tonDb,{...note,invoiceId:replayInvoice.invoiceId}),'UNMATCHED','one chain transaction cannot fund a different invoice');
+  assert.equal((await tonDb.tonDeposit.findUniqueOrThrow({where:{id:replayInvoice.id}})).status,'PENDING');
+  const wrongAmount=await tonDb.tonDeposit.create({data:{invoiceId:'dep_'+randomUUID().replaceAll('-','').slice(0,32),userId:'22222',senderAddress:sender,recipientAddress:config.treasury.toRawString(),jettonMaster:master,requestedMicros:50000000n,queryId:'43',expiresAt:new Date(Date.now()+1200000)}});
+  assert.equal(await applyNotification(tonDb,{...note,invoiceId:wrongAmount.invoiceId,txHash:'b'.repeat(64),queryId:'43',amount:1000000n}),'MANUAL_REVIEW');
+  assert.equal((await call('/v1/wallet',user)).data.balance,'62.000000');
+  const late=await tonDb.tonDeposit.create({data:{invoiceId:'dep_'+randomUUID().replaceAll('-','').slice(0,32),userId:'22222',senderAddress:sender,recipientAddress:config.treasury.toRawString(),jettonMaster:master,requestedMicros:50000000n,queryId:'44',expiresAt:new Date(Date.now()-300000)}});
+  assert.equal(await applyNotification(tonDb,{...note,invoiceId:late.invoiceId,txHash:'c'.repeat(64),queryId:'44'}),'MANUAL_REVIEW');
+  assert.equal((await call('/v1/wallet',user)).data.balance,'62.000000');
+ }finally{await tonDb.$disconnect()}
+ console.log('Integration checks passed: previous tests plus TON wallet access, proof challenge, amount mismatch, foreign sender, deposit ledger and tenfold idempotent replay.');
 }finally{if(child.exitCode===null&&child.signalCode===null){const done=new Promise(r=>child.once('exit',r));child.kill('SIGTERM');const timer=setTimeout(()=>child.kill('SIGKILL'),3000);await done;clearTimeout(timer)}}

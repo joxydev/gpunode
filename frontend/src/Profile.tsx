@@ -6,6 +6,7 @@ import './profile.css';
 const stepIcon:Record<JourneyStep['state'],string>={DONE:'check',CURRENT:'bolt',WAITING:'clock',LOCKED:'lock'};
 const stateText:Record<JourneyStep['state'],string>={DONE:'Готово',CURRENT:'Текущий этап',WAITING:'Следующий этап',LOCKED:'После Epoch'};
 const requestState:Record<string,string>={REQUESTED:'На рассмотрении',REVIEWED:'В работе',CLOSED:'Закрыта'};
+const exactBalance=(value:string,locale:string)=>{const [whole,fraction='']=value.split('.');const significant=fraction.replace(/0+$/,'');return new Intl.NumberFormat(locale).format(BigInt(whole||'0'))+(significant?'.'+significant.padEnd(2,'0'):'')};
 
 type ProfileProps={account:Account;onMarket:()=>void;onFunding:()=>void;onOrder:()=>void;onWithdraw:()=>void;onOffer:()=>void;onReadOrders:()=>void};
 
@@ -21,7 +22,7 @@ export default function Profile({account,onMarket,onFunding,onOrder,onWithdraw,o
   <div className="profile-main">
    <div className="profile-summary">
     <section className="profile-overview" aria-label={t('Профиль')}>
-     <article className="profile-balance panel"><div><span>{t('Учётный баланс')}</span><span className="chip">USDT</span></div><strong>{Math.floor(Number(account.balance)).toLocaleString(locale)}</strong><small>{t(account.paymentsEnabled?'Доступен для подтверждённых операций':'Пополнение и списание ещё не подключены')}</small></article>
+     <article className="profile-balance panel"><div><span>{t('Учётный баланс')}</span><span className="chip">USDT</span></div><strong>{exactBalance(account.balance,locale)}</strong><small>{t(account.paymentsEnabled?'Доступен для подтверждённых операций':'Публичное пополнение и списание ещё не подключены')}</small></article>
      <article className={'profile-tariff panel '+(selected?'selected':'empty')}><span>{t('Выбранный тариф')}</span>{selected?<><h2>{selected.name}</h2><div><b>{Number(selected.depositUsdt).toLocaleString(locale)} USDT</b><small>{selected.days} {t('дней')} · {selected.dailyPercent}% {t('в сутки')}</small></div><button className="text-button" onClick={onMarket}>{t('Изменить до активации')} <Icon name="arrow" size={15}/></button></>:<><h2>{t('Не выбран')}</h2><p>{t('Начните с фиксированной категории по оферте.')}</p><button className="secondary" onClick={onMarket}>{t('Выбрать тариф')}</button></>}</article>
     </section>
     <section className="profile-test panel"><div><span className="eyebrow">{t('ТЕСТОВЫЙ РЕЖИМ')}</span><h2>{t('Тестовый баланс')} · {Math.floor(Number(account.testBalance)).toLocaleString(locale)} USDT</h2><p>{t('Начисляется владельцем для проверки заказа. Не является депозитом и недоступен для вывода.')}</p></div>{selected&&<button className="secondary" disabled={pending} onClick={onOrder}>{pending?t('Заказ на рассмотрении'):t('Проверить и заказать')}</button>}</section>
