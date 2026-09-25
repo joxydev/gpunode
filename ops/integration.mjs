@@ -89,6 +89,10 @@ try{
  // The isolated CI API has no live TON Center key; invoice creation remains gated.
  for(const path of ['/v1/wallet','/v1/wallet/transactions','/v1/deposits','/v1/admin/deposits','/v1/admin/deposits/unmatched','/v1/ton/health'])assert.equal((await call(path)).status,401);
  assert.equal((await call('/v1/admin/deposits',user)).status,403);
+ assert.equal((await call('/me',user)).data.user.isOwner,false,'payment tester has no owner permissions');
+ assert.equal((await call('/v1/wallet',owner)).data.paymentCanary,true);
+ assert.equal((await call('/v1/wallet',user)).data.paymentCanary,true);
+ assert.equal((await call('/v1/wallet',other)).data.paymentCanary,false);
  assert.equal((await call('/v1/wallet',user)).data.balance,'12.000000');
  assert.equal((await call('/v1/wallet',user)).data.gaslessAvailable,false,'gasless is disabled in isolated CI');
  assert.equal((await call('/v1/deposits',user,{asset:'USDT',network:'TON',amount:'50'})).status,503);
@@ -111,6 +115,8 @@ try{
   assert.equal((await call('/v1/deposits/'+newDeposit.id+'/gasless/send',user,{estimateId:'a'.repeat(32),internalBoc:'garbage'})).status,503);
   const note={txHash:'a'.repeat(64),traceId:null,time:now,sender,amount:50000000n,invoiceId,queryId:'42'};
   assert.equal(await applyNotification(tonDb,{...note,sender:'0:'+'b'.repeat(64)}),'UNMATCHED','other wallet cannot claim invoice');
+  assert.equal(await applyNotification(tonDb,{...note,txHash:'b'.repeat(64),sender:config.treasury.toRawString()}),'UNMATCHED','treasury cannot credit itself');
+  assert.equal((await tonDb.walletLedger.count({where:{depositId:newDeposit.id}})),0,'self transfer cannot mutate ledger');
   assert.equal((await call('/v1/deposits/'+newDeposit.id,user)).data.status,'PENDING');
   assert.equal(await applyNotification(tonDb,note),'CREDITED');
   for(let i=0;i<10;i++)assert.equal(await applyNotification(tonDb,note),'ALREADY_CREDITED');
@@ -120,7 +126,7 @@ try{
   assert.equal('testBalance' in (await call('/me',user)).data,false);
   assert.equal((await call('/v1/deposits/'+newDeposit.id,other)).status,404);
   assert.equal((await call('/v1/admin/deposits',owner)).data.items[0].status,'CREDITED');
-  assert.equal((await call('/v1/admin/deposits/unmatched',owner)).data.total,1);
+  assert.equal((await call('/v1/admin/deposits/unmatched',owner)).data.total,2);
   const rows=await tonDb.walletLedger.findMany({where:{depositId:newDeposit.id}});assert.equal(rows.length,1);assert.equal(rows[0].balanceBefore,12000000n);assert.equal(rows[0].balanceAfter,62000000n);
   const legacy=await tonDb.ledgerEntry.findMany({where:{sourceId:'ton-deposit:'+newDeposit.id}});assert.equal(legacy.length,1);assert.equal(legacy[0].amountMicros,50000000n);
   const replayInvoice=await tonDb.tonDeposit.create({data:{invoiceId:'dep_'+randomUUID().replaceAll('-','').slice(0,32),userId:'22222',senderAddress:sender,recipientAddress:config.treasury.toRawString(),jettonMaster:master,requestedMicros:50000000n,queryId:'42',expiresAt:new Date(Date.now()+1200000)}});

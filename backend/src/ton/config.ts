@@ -10,6 +10,13 @@ function attachNanograms(value:string):bigint{
  return amount;
 }
 
+function testerIds(value:string):string[]{
+ if(!value)return [];
+ const ids=value.split(',');
+ if(ids.length>5||ids.some(id=>!/^[1-9]\d{0,19}$/.test(id))||new Set(ids).size!==ids.length)throw Error('Invalid TON_PAYMENT_TEST_TELEGRAM_IDS');
+ return ids;
+}
+
 export function tonConfig(env:NodeJS.ProcessEnv=process.env){
  if((env.TON_NETWORK||'mainnet')!=='mainnet'||(env.TON_CHAIN_ID||'-239')!=='-239')throw Error('TON Mainnet is the only supported network');
  if((env.TON_WALLET_VERSION||'W5')!=='W5')throw Error('Unexpected treasury wallet version');
@@ -28,10 +35,11 @@ export function tonConfig(env:NodeJS.ProcessEnv=process.env){
  const max=usdtUnits(env.TON_DEPOSIT_MAX_USDT||'10000');
  if(min>max)throw Error('Invalid deposit limits');
  const attachAmount=attachNanograms(env.TON_JETTON_ATTACH_GRAM||'0.05');
- // Canary: only the actual server-side owner ID receives the candidate attach.
+ // Canary IDs are obtained from the authenticated Telegram session, never a supplied username.
  if(env.TON_JETTON_ATTACH_SMOKE_OWNER_GRAM&&!/^\d{1,20}$/.test(env.OWNER_TELEGRAM_ID||''))throw Error('OWNER_TELEGRAM_ID required for owner attach smoke');
  const ownerSmokeAttach=env.TON_JETTON_ATTACH_SMOKE_OWNER_GRAM?attachNanograms(env.TON_JETTON_ATTACH_SMOKE_OWNER_GRAM):null;
  const smokeOwnerId=ownerSmokeAttach?env.OWNER_TELEGRAM_ID:null;
+ const paymentTestIds=testerIds(env.TON_PAYMENT_TEST_TELEGRAM_IDS||'');
  const tonApiBase=env.TONAPI_BASE||'https://tonapi.io';
  if(tonApiBase!=='https://tonapi.io')throw Error('Unapproved TONAPI base');
  const tonApiKey=env.TONAPI_API_KEY||'';
@@ -39,15 +47,18 @@ export function tonConfig(env:NodeJS.ProcessEnv=process.env){
  const gaslessSmokeOwnerOnly=env.TON_GASLESS_SMOKE_OWNER_ONLY!=='false';
  if(gaslessEnabled&&gaslessSmokeOwnerOnly&&!/^\d{1,20}$/.test(env.OWNER_TELEGRAM_ID||''))throw Error('OWNER_TELEGRAM_ID required for gasless canary');
  const gaslessAttach=attachNanograms(env.TON_GASLESS_ATTACH_GRAM||'0.05');
- return {treasury,master,apiBase,apiKey,enabled,publicUrl,domain:publicUrl.hostname,min,max,attachAmount,ownerSmokeAttach,smokeOwnerId,tonApiBase,tonApiKey,gaslessEnabled,gaslessAttach,gaslessSmokeOwnerOnly,gaslessOwnerId:env.OWNER_TELEGRAM_ID||null};
+ return {treasury,master,apiBase,apiKey,enabled,publicUrl,domain:publicUrl.hostname,min,max,attachAmount,ownerSmokeAttach,smokeOwnerId,paymentTestIds,tonApiBase,tonApiKey,gaslessEnabled,gaslessAttach,gaslessSmokeOwnerOnly,gaslessOwnerId:env.OWNER_TELEGRAM_ID||null};
 }
 
+export function paymentCanary(config:ReturnType<typeof tonConfig>,userId:string){
+ return userId===config.gaslessOwnerId||config.paymentTestIds.includes(userId);
+}
 export function attachForUser(config:ReturnType<typeof tonConfig>,userId:string){
- return config.ownerSmokeAttach!==null&&config.smokeOwnerId===userId?config.ownerSmokeAttach:config.attachAmount;
+ return config.ownerSmokeAttach!==null&&paymentCanary(config,userId)?config.ownerSmokeAttach:config.attachAmount;
 }
 export function structuredForUser(config:ReturnType<typeof tonConfig>,userId:string){
- // Keep the owner Mainnet attach smoke on the measurable raw Jetton path.
- return !(config.ownerSmokeAttach!==null&&config.smokeOwnerId===userId);
+ // Mainnet attach smoke must stay on a measurable raw Jetton path.
+ return !(config.ownerSmokeAttach!==null&&paymentCanary(config,userId));
 }
 
 export function usdtUnits(value:unknown):bigint{

@@ -4,7 +4,7 @@ set -Eeuo pipefail
 umask 077
 [[ $EUID -eq 0 ]] || { echo 'Run with sudo on the VPS.' >&2; exit 1; }
 mode=${1:-};invoice=${2:-};hash=${3:-}
-[[ $mode == standard || $mode == gasless-owner || $mode == gasless-all ]] || { echo 'Mode: standard | gasless-owner | gasless-all' >&2; exit 1; }
+[[ $mode == standard || $mode == gasless-canary || $mode == gasless-owner || $mode == gasless-all ]] || { echo 'Mode: standard | gasless-canary | gasless-all' >&2; exit 1; }
 cd /
 exec 9>/var/lock/gpunode-deploy.lock
 flock -n 9 || { echo 'Another deployment is running.' >&2; exit 1; }
@@ -35,7 +35,7 @@ rollback(){
 trap rollback ERR INT TERM
 
 if [[ $mode == standard || $mode == gasless-all ]]; then
- [[ $invoice =~ ^dep_[a-f0-9]{32}$ && $hash =~ ^[a-f0-9]{64}$ ]] || { echo 'Need exact owner invoice ID and treasury transaction hash.' >&2; exit 1; }
+ [[ $invoice =~ ^dep_[a-f0-9]{32}$ && $hash =~ ^[a-f0-9]{64}$ ]] || { echo 'Need exact authorized canary invoice ID and treasury transaction hash.' >&2; exit 1; }
  audit=standard;[[ $mode == standard ]] || audit=gasless
  runtime node "$release/ops/ton-audit.mjs" "$audit" "$invoice" "$hash"
  echo "Trace: https://tonviewer.com/transaction/$hash"
@@ -51,7 +51,7 @@ case $mode in
   changed=1
   printf 'TON_JETTON_ATTACH_GRAM=0.05\nTON_JETTON_ATTACH_SMOKE_OWNER_GRAM=\n' >> "$envfile"
   ;;
- gasless-owner)
+ gasless-canary|gasless-owner)
   [[ $(awk -F= '/^TON_JETTON_ATTACH_GRAM=/{v=$2}END{print v}' "$envfile") == 0.05 ]] || { echo 'Standard Mainnet promotion must finish first.' >&2; exit 1; }
   key=''
   read -rs -p 'TONAPI API key (hidden input): ' key </dev/tty;echo
@@ -62,7 +62,7 @@ case $mode in
   runtime node --input-type=module -e 'import("file:///srv/apps/gpunode/current/backend/dist/ton/gasless.js").then(async m=>{const {tonConfig}=await import("file:///srv/apps/gpunode/current/backend/dist/ton/config.js");const relay=await new m.TonApiGasless(tonConfig()).relay();if(!relay)throw Error("TONAPI does not support the official USDT master");process.stdout.write("TONAPI USDT relay verified\n")})'
   ;;
  gasless-all)
-  [[ $(awk -F= '/^TON_GASLESS_SMOKE_OWNER_ONLY=/{v=$2}END{print v}' "$envfile") == true && $(awk -F= '/^ENABLE_TON_GASLESS=/{v=$2}END{print v}' "$envfile") == true ]] || { echo 'Owner gasless canary not active.' >&2; exit 1; }
+  [[ $(awk -F= '/^TON_GASLESS_SMOKE_OWNER_ONLY=/{v=$2}END{print v}' "$envfile") == true && $(awk -F= '/^ENABLE_TON_GASLESS=/{v=$2}END{print v}' "$envfile") == true ]] || { echo 'Gasless canary not active.' >&2; exit 1; }
   changed=1
   printf 'TON_GASLESS_SMOKE_OWNER_ONLY=false\n' >> "$envfile"
   ;;
@@ -74,6 +74,6 @@ for _ in {1..25}; do if curl -fsS --max-time 2 http://127.0.0.1:3100/api/health 
 ((ready)) || { echo 'API did not recover.' >&2;false; }
 curl -fsS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 https://31.77.226.26/api/health >/dev/null
 systemctl is-active --quiet gpunode-ton-watcher.service
-runtime node --input-type=module -e 'import("file:///srv/apps/gpunode/current/backend/dist/ton/config.js").then(m=>{const c=m.tonConfig();if(!c.enabled)throw Error("Deposits disabled");process.stdout.write(JSON.stringify({publicAttachNano:c.attachAmount.toString(),gaslessEnabled:c.gaslessEnabled,ownerOnly:c.gaslessSmokeOwnerOnly})+"\n")})'
+runtime node --input-type=module -e 'import("file:///srv/apps/gpunode/current/backend/dist/ton/config.js").then(m=>{const c=m.tonConfig();if(!c.enabled)throw Error("Deposits disabled");process.stdout.write(JSON.stringify({publicAttachNano:c.attachAmount.toString(),gaslessEnabled:c.gaslessEnabled,canaryOnly:c.gaslessSmokeOwnerOnly,testerIds:c.paymentTestIds})+"\n")})'
 trap - ERR INT TERM
 echo "Promotion $mode complete; backup: $backup"

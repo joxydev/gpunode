@@ -79,6 +79,7 @@ try:
         'BOT_TOKEN': '123456:TEST_TOKEN_NOT_A_REAL_CREDENTIAL',
         'BOT_USERNAME': 'aethermind_ci_bot',
         'OWNER_TELEGRAM_ID': '11111',
+        'TON_PAYMENT_TEST_TELEGRAM_IDS': '22222',
         'SESSION_SECRET': secrets.token_hex(32),
         'BOT_WEBHOOK_SECRET': secrets.token_hex(24),
         'PUBLIC_URL': 'https://example.invalid',

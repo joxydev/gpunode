@@ -2,7 +2,7 @@ import {randomBytes,createHash} from 'node:crypto';
 import {BadRequestException,ForbiddenException,NotFoundException,ServiceUnavailableException} from '@nestjs/common';
 import type {PrismaClient,TonDeposit} from '@prisma/client';
 import {Address} from '@ton/ton';
-import {tonConfig,usdtString,usdtUnits,friendly,attachForUser,structuredForUser} from '../ton/config.js';
+import {tonConfig,usdtString,usdtUnits,friendly,attachForUser,structuredForUser,paymentCanary} from '../ton/config.js';
 import {TonCenter} from '../ton/center.js';
 import {buildJettonTransfer,buildStructuredJettonTransfer} from '../ton/jetton.js';
 import {verifyTonProof,type ProofInput} from '../ton/proof.js';
@@ -43,7 +43,7 @@ export class DepositsService {
    this.db.tonWallet.findUnique({where:{userId}}),this.db.ledgerEntry.aggregate({where:{userId},_sum:{amountMicros:true}}),
    this.db.tonDeposit.count({where:{userId,status:{in:['PENDING','DETECTED','CONFIRMED']}}})
   ]);
-  return {asset:'USDT',network:'TON',balance:usdtString(balance._sum.amountMicros||0n),connectedWallet:wallet?.verified?friendly(wallet.address):null,rawAddress:wallet?.verified?wallet.address:null,verified:Boolean(wallet?.verified),depositsEnabled:this.allowed(userId)&&Boolean(config.apiKey),publicDepositsEnabled:config.enabled,minAmount:usdtString(config.min),maxAmount:usdtString(config.max),pending};
+  return {asset:'USDT',network:'TON',balance:usdtString(balance._sum.amountMicros||0n),connectedWallet:wallet?.verified?friendly(wallet.address):null,rawAddress:wallet?.verified?wallet.address:null,verified:Boolean(wallet?.verified),paymentCanary:paymentCanary(config,userId),depositsEnabled:this.allowed(userId)&&Boolean(config.apiKey),publicDepositsEnabled:config.enabled,minAmount:usdtString(config.min),maxAmount:usdtString(config.max),pending};
  }
  async create(userId:string,body:Record<string,unknown>){
   if(!this.allowed(userId))throw new ServiceUnavailableException('Пополнение временно недоступно.');
@@ -55,6 +55,7 @@ export class DepositsService {
   const wallet=await this.db.tonWallet.findUnique({where:{userId}});
   if(!wallet?.verified)throw new ForbiddenException('Сначала подтвердите TON-кошелёк через TON Proof.');
   const sender=Address.parse(wallet.address);
+  if(sender.equals(config.treasury))throw new ForbiddenException('Кошелёк получения сервиса нельзя использовать для пополнения собственного баланса. Подключите другой кошелёк.');
   let senderJetton;
   try{senderJetton=await center.jettonWallet(sender);}catch{throw new ServiceUnavailableException('Не удалось определить официальный USDT Jetton Wallet.');}
   const invoiceId='dep_'+randomBytes(16).toString('hex');

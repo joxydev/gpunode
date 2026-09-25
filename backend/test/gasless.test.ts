@@ -19,6 +19,19 @@ const toRaw=(cell:Cell):RelayMessage=>({address:jetton.toRawString(),amount:toNa
 const estimate={relayAddress:relay,from:wallet,commission:'100000',validUntil:Math.floor(Date.now()/1000)+240,protocolName:'gasless',messages:[toRaw(feeBody),toRaw(body)]};
 const expected={wallet,jetton,treasury:cfg.treasury,invoiceId,queryId,requested:10000000n,relay,expiresAt,expectedBody:body};
 
+test('gasless canary admits only the owner and explicitly listed Telegram ID, without changing public availability',async()=>{
+ const canaryConfig=tonConfig({PUBLIC_URL:'https://31.77.226.26',TONCENTER_API_KEY:'test',ENABLE_TON_USDT_DEPOSITS:'true',ENABLE_TON_GASLESS:'true',TONAPI_API_KEY:'fake-test-key',OWNER_TELEGRAM_ID:'123',TON_PAYMENT_TEST_TELEGRAM_IDS:'6662169510'});
+ const db={tonWallet:{findUnique:async()=>({verified:true,walletVersion:'W5',publicKey:keys.publicKey.toString('hex')})}} as unknown as PrismaClient;
+ const provider={enabled:true,relay:async()=>relay} as unknown as TonApiGasless;
+ const canary=new GaslessDeposits(db,provider,true,canaryConfig);
+ assert.equal(await canary.availability('123'),true);
+ assert.equal(await canary.availability('6662169510'),true);
+ assert.equal(await canary.availability('9999999999'),false);
+ assert.equal(await canary.availability('@VerstakPR'),false);
+ const publicMode=new GaslessDeposits(db,provider,false,canaryConfig);
+ assert.equal(await publicMode.availability('9999999999'),true);
+});
+
 test('TONAPI is separate, server-only, disabled without its key; official master must be supported',async()=>{
  const disabled=tonConfig({PUBLIC_URL:'https://31.77.226.26',ENABLE_TON_USDT_DEPOSITS:'true',TONCENTER_API_KEY:'test'});
  assert.equal(new TonApiGasless(disabled).enabled,false);

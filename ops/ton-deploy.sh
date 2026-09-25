@@ -176,14 +176,35 @@ env_changed=1
 printf 'TON_NETWORK=mainnet\nTON_CHAIN_ID=-239\nTON_WALLET_VERSION=W5\nAETHERMIND_TREASURY_ADDRESS=UQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH\nUSDT_TON_MASTER=EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs\nTONCENTER_API_BASE=https://toncenter.com/api/v3\nENABLE_TON_USDT_DEPOSITS=true\n' >> "$envfile"
 # Keep the public execution reserve unchanged until an actual Mainnet trace
 # proves that the candidate value covers this invoice's forward payload.
-# The server-side owner gets the smaller candidate only for a smoke payment.
+# The server-side owner and explicitly listed test accounts get the smaller
+# candidate only for a smoke payment. They receive no owner panel permissions.
 public_attach=$(awk -F= '/^TON_JETTON_ATTACH_GRAM=/{value=$2} END{print value}' "$backup/runtime.env")
 [[ -n $public_attach ]] || public_attach='0.1'
 [[ $public_attach == 0.1 || $public_attach == 0.05 ]] || fail 'Неизвестное значение публичного TON attach.'
 owner_canary='0.05'
 [[ $public_attach == 0.1 ]] || owner_canary=''
 # A later deployment must never silently undo a separately audited Mainnet promotion.
-printf 'TON_JETTON_ATTACH_GRAM=%s\nTON_JETTON_ATTACH_SMOKE_OWNER_GRAM=%s\nTON_GASLESS_ATTACH_GRAM=0.05\nTONAPI_BASE=https://tonapi.io\nENABLE_TON_GASLESS=false\nTON_GASLESS_SMOKE_OWNER_ONLY=true\n' "$public_attach" "$owner_canary" >> "$envfile"
+if grep -q '^TON_PAYMENT_TEST_TELEGRAM_IDS=' "$backup/runtime.env"; then
+  testers=$(awk -F= '/^TON_PAYMENT_TEST_TELEGRAM_IDS=/{value=$2} END{print value}' "$backup/runtime.env")
+else
+  testers=''
+fi
+case ",$testers," in
+  *,6662169510,*) ;;
+  *) testers="${testers:+$testers,}6662169510" ;;
+esac
+prior_gasless=$(awk -F= '/^ENABLE_TON_GASLESS=/{value=$2} END{print value}' "$backup/runtime.env")
+prior_canary_only=$(awk -F= '/^TON_GASLESS_SMOKE_OWNER_ONLY=/{value=$2} END{print value}' "$backup/runtime.env")
+if [[ $prior_gasless == true ]]; then
+  grep -Eq '^TONAPI_API_KEY=[A-Za-z0-9_-]{8,200}$' "$backup/runtime.env" || fail 'Previously enabled gasless is missing its TONAPI key.'
+  [[ $prior_canary_only == true || $prior_canary_only == false ]] || fail 'Previously enabled gasless is missing its rollout mode.'
+  gasless_state=true
+  canary_only=$prior_canary_only
+else
+  gasless_state=false
+  canary_only=true
+fi
+printf 'TON_JETTON_ATTACH_GRAM=%s\nTON_JETTON_ATTACH_SMOKE_OWNER_GRAM=%s\nTON_PAYMENT_TEST_TELEGRAM_IDS=%s\nTON_GASLESS_ATTACH_GRAM=0.05\nTONAPI_BASE=https://tonapi.io\nENABLE_TON_GASLESS=%s\nTON_GASLESS_SMOKE_OWNER_ONLY=%s\n' "$public_attach" "$owner_canary" "$testers" "$gasless_state" "$canary_only" >> "$envfile"
 chmod 0600 "$envfile"
 
 # runtime.env is deliberately root-only (0600). Load it in a root subshell,
@@ -202,7 +223,7 @@ run_with_runtime_env(){
 run_with_runtime_env bash -c '
   set -Eeuo pipefail
   cd "$1/backend"
-      node --input-type=module -e '\''import("./dist/deposits/service.js").then(async m=>{const c=m.config;const {attachForUser}=await import("./dist/ton/config.js");const expected=BigInt(process.env.TON_JETTON_ATTACH_GRAM==="0.05"?50000000:100000000);if(c.attachAmount!==expected||attachForUser(c,process.env.OWNER_TELEGRAM_ID)!==50000000n||attachForUser(c,"non-owner")!==expected||c.gaslessEnabled)throw Error("Unsafe attach/gasless configuration");process.stdout.write("TON attach stage confirmed\\n")})'\''
+      node --input-type=module -e '\''import("./dist/deposits/service.js").then(async m=>{const c=m.config;const {attachForUser}=await import("./dist/ton/config.js");const expected=BigInt(process.env.TON_JETTON_ATTACH_GRAM==="0.05"?50000000:100000000);if(c.attachAmount!==expected||attachForUser(c,process.env.OWNER_TELEGRAM_ID)!==50000000n||!c.paymentTestIds.includes("6662169510")||c.paymentTestIds.some(id=>attachForUser(c,id)!==50000000n)||attachForUser(c,"non-tester")!==expected||c.gaslessEnabled!==(process.env.ENABLE_TON_GASLESS==="true"))throw Error("Unsafe attach/gasless configuration");process.stdout.write("TON canary configuration confirmed\\n")})'\''
 ' _ "$release"
 
 # TON Connect wallets resolve bridges and wallet icons on their own HTTPS hosts.

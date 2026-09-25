@@ -6,7 +6,7 @@ import {TonApiGasless} from '../ton/gasless.js';
 import {estimateMessage,validateEstimate,verifiedExternal,type SignRequest} from '../ton/gasless-messages.js';
 import {buildJettonTransfer} from '../ton/jetton.js';
 import {config,center} from './service.js';
-import {usdtString} from '../ton/config.js';
+import {usdtString,paymentCanary} from '../ton/config.js';
 
 type Saved={id:string;fee:string;expiresAt:number;signRequest:SignRequest;externalBoc?:string;relayAttemptAt?:number;relaySubmittedAt?:number;relayTraceId?:string};
 const saved=(row:TonDeposit):Saved|null=>{
@@ -21,9 +21,9 @@ function valid(row:TonDeposit,userId:string){
 const metadata=(gasless:Saved,previous:Prisma.JsonValue)=>({...previous&&typeof previous==='object'&&!Array.isArray(previous)?previous:{},paymentMode:'GASLESS',gasless}) as Prisma.InputJsonValue;
 
 export class GaslessDeposits {
- constructor(readonly db:PrismaClient,readonly provider=new TonApiGasless(config),readonly ownerOnly=config.gaslessSmokeOwnerOnly){}
+ constructor(readonly db:PrismaClient,readonly provider=new TonApiGasless(config),readonly ownerOnly=config.gaslessSmokeOwnerOnly,readonly rolloutConfig=config){}
  async availability(userId:string){
-  if(!this.provider.enabled||this.ownerOnly&&userId!==config.gaslessOwnerId)return false;
+  if(!this.provider.enabled||this.ownerOnly&&!paymentCanary(this.rolloutConfig,userId))return false;
   const wallet=await this.db.tonWallet.findUnique({where:{userId}});
   if(!wallet?.verified||wallet.walletVersion!=='W5'||!wallet.publicKey)return false;
   try{return Boolean(await this.provider.relay());}catch{return false;}
@@ -32,7 +32,7 @@ export class GaslessDeposits {
   const row=await this.db.tonDeposit.findUnique({where:{id}});
   if(!row||row.userId!==userId)throw new NotFoundException('Счёт не найден.');
   valid(row,userId);
-  if(!this.provider.enabled||this.ownerOnly&&userId!==config.gaslessOwnerId)throw new ServiceUnavailableException('Газлесс временно недоступен. Используйте обычный перевод.');
+  if(!this.provider.enabled||this.ownerOnly&&!paymentCanary(this.rolloutConfig,userId))throw new ServiceUnavailableException('Газлесс временно недоступен. Используйте обычный перевод.');
   const wallet=await this.db.tonWallet.findUnique({where:{userId}});
   if(!wallet?.verified||wallet.walletVersion!=='W5'||!wallet.publicKey||! /^[a-f0-9]{64}$/.test(wallet.publicKey)||wallet.address!==row.senderAddress)throw new ForbiddenException('Для газлесс требуется новый TON Proof кошелька W5.');
   return {row,wallet};

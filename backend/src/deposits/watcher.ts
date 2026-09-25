@@ -13,6 +13,10 @@ async function unmatched(note:Notification,reason:string){
 }
 
 export async function applyNotification(prisma:PrismaClient,note:Notification){
+ if(Address.parse(note.sender).equals(config.treasury)){
+  await prisma.unmatchedTonDeposit.upsert({where:{txHash:note.txHash},create:{txHash:note.txHash,invoiceId:note.invoiceId,senderAddress:note.sender,amountMicros:note.amount,reason:'TREASURY_SELF_TRANSFER',traceId:note.traceId},update:{}});
+  return 'UNMATCHED';
+ }
  const deposit=note.invoiceId?await prisma.tonDeposit.findUnique({where:{invoiceId:note.invoiceId}}):null;
  if(!deposit){await prisma.unmatchedTonDeposit.upsert({where:{txHash:note.txHash},create:{txHash:note.txHash,invoiceId:note.invoiceId,senderAddress:note.sender,amountMicros:note.amount,reason:'NO_MATCHING_INVOICE',traceId:note.traceId},update:{}});return 'UNMATCHED';}
  return prisma.$transaction(async tx=>{
