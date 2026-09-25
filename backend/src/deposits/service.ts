@@ -27,15 +27,15 @@ export class DepositsService {
  async verify(userId:string,input:ProofInput){
   const challenge=await this.db.tonProofChallenge.findUnique({where:{nonceHash:hash(input?.proof?.payload||'')}});
   if(!challenge||challenge.userId!==userId||challenge.consumedAt||challenge.expiresAt<=new Date())throw new BadRequestException('Подпись кошелька устарела. Подключите его снова.');
-  let raw:string;
-  try{raw=await verifyTonProof(input,input.proof.payload,config,center);}catch{throw new BadRequestException('Не удалось подтвердить владение TON-кошельком.');}
+  let proof:{address:string;publicKey:string;walletVersion:string};
+  try{proof=await verifyTonProof(input,input.proof.payload,config,center);}catch{throw new BadRequestException('Не удалось подтвердить владение TON-кошельком.');}
   return this.db.$transaction(async tx=>{
    const used=await tx.tonProofChallenge.updateMany({where:{id:challenge.id,consumedAt:null,expiresAt:{gt:new Date()}},data:{consumedAt:new Date()}});
    if(!used.count)throw new BadRequestException('Подпись уже использована.');
-   const owner=await tx.tonWallet.findUnique({where:{address:raw}});
+   const owner=await tx.tonWallet.findUnique({where:{address:proof.address}});
    if(owner&&owner.userId!==userId)throw new ForbiddenException('Кошелёк привязан к другому аккаунту.');
-   const wallet=await tx.tonWallet.upsert({where:{userId},create:{userId,address:raw,network:'TON',walletApp:String(input.walletApp||'').slice(0,100)||null,verified:true},update:{address:raw,network:'TON',walletApp:String(input.walletApp||'').slice(0,100)||null,verified:true,lastConnectedAt:new Date()}});
-   return {address:friendly(wallet.address),network:'TON',verified:true};
+   const wallet=await tx.tonWallet.upsert({where:{userId},create:{userId,address:proof.address,network:'TON',walletApp:String(input.walletApp||'').slice(0,100)||null,publicKey:proof.publicKey,walletVersion:proof.walletVersion,verified:true},update:{address:proof.address,network:'TON',walletApp:String(input.walletApp||'').slice(0,100)||null,publicKey:proof.publicKey,walletVersion:proof.walletVersion,verified:true,lastConnectedAt:new Date()}});
+   return {address:friendly(wallet.address),network:'TON',verified:true,walletVersion:wallet.walletVersion};
   });
  }
  async wallet(userId:string){

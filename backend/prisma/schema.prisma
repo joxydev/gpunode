@@ -182,6 +182,8 @@ model TonWallet {
   network String @default("TON")
   address String @unique @db.VarChar(70)
   walletApp String? @map("wallet_app") @db.VarChar(100)
+  publicKey String? @map("public_key") @db.VarChar(64)
+  walletVersion String? @map("wallet_version") @db.VarChar(20)
   verified Boolean @default(true)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   lastConnectedAt DateTime @default(now()) @map("last_connected_at") @db.Timestamptz(3)
