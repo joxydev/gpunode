@@ -32,11 +32,22 @@ export function tonConfig(env:NodeJS.ProcessEnv=process.env){
  if(env.TON_JETTON_ATTACH_SMOKE_OWNER_GRAM&&!/^\d{1,20}$/.test(env.OWNER_TELEGRAM_ID||''))throw Error('OWNER_TELEGRAM_ID required for owner attach smoke');
  const ownerSmokeAttach=env.TON_JETTON_ATTACH_SMOKE_OWNER_GRAM?attachNanograms(env.TON_JETTON_ATTACH_SMOKE_OWNER_GRAM):null;
  const smokeOwnerId=ownerSmokeAttach?env.OWNER_TELEGRAM_ID:null;
- return {treasury,master,apiBase,apiKey,enabled,publicUrl,domain:publicUrl.hostname,min,max,attachAmount,ownerSmokeAttach,smokeOwnerId};
+ const tonApiBase=env.TONAPI_BASE||'https://tonapi.io';
+ if(tonApiBase!=='https://tonapi.io')throw Error('Unapproved TONAPI base');
+ const tonApiKey=env.TONAPI_API_KEY||'';
+ const gaslessEnabled=env.ENABLE_TON_GASLESS==='true'&&Boolean(tonApiKey);
+ const gaslessSmokeOwnerOnly=env.TON_GASLESS_SMOKE_OWNER_ONLY!=='false';
+ if(gaslessEnabled&&gaslessSmokeOwnerOnly&&!/^\d{1,20}$/.test(env.OWNER_TELEGRAM_ID||''))throw Error('OWNER_TELEGRAM_ID required for gasless canary');
+ const gaslessAttach=attachNanograms(env.TON_GASLESS_ATTACH_GRAM||'0.05');
+ return {treasury,master,apiBase,apiKey,enabled,publicUrl,domain:publicUrl.hostname,min,max,attachAmount,ownerSmokeAttach,smokeOwnerId,tonApiBase,tonApiKey,gaslessEnabled,gaslessAttach,gaslessSmokeOwnerOnly,gaslessOwnerId:env.OWNER_TELEGRAM_ID||null};
 }
 
 export function attachForUser(config:ReturnType<typeof tonConfig>,userId:string){
  return config.ownerSmokeAttach!==null&&config.smokeOwnerId===userId?config.ownerSmokeAttach:config.attachAmount;
+}
+export function structuredForUser(config:ReturnType<typeof tonConfig>,userId:string){
+ // Keep the owner Mainnet attach smoke on the measurable raw Jetton path.
+ return !(config.ownerSmokeAttach!==null&&config.smokeOwnerId===userId);
 }
 
 export function usdtUnits(value:unknown):bigint{

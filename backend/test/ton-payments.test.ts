@@ -4,7 +4,7 @@ import {createHash,generateKeyPairSync,sign as edSign} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {Address,beginCell,Cell,storeStateInit,WalletContractV5R1,WalletContractV4,toNano} from '@ton/ton';
 import {PGlite} from '@electric-sql/pglite';
-import {tonConfig,usdtUnits,attachForUser,DEFAULT_MASTER,DEFAULT_TREASURY} from '../src/ton/config.js';
+import {tonConfig,usdtUnits,attachForUser,structuredForUser,DEFAULT_MASTER,DEFAULT_TREASURY} from '../src/ton/config.js';
 import {verifyTonProof} from '../src/ton/proof.js';
 import {buildJettonTransfer} from '../src/ton/jetton.js';
 import {parseNotification} from '../src/ton/notification.js';
@@ -60,6 +60,8 @@ test('USDT is exact base units, transaction is Jetton transfer with tagged invoi
  const configured=tonConfig({OWNER_TELEGRAM_ID:'112233',TON_JETTON_ATTACH_GRAM:'0.06',TON_JETTON_ATTACH_SMOKE_OWNER_GRAM:'0.05'});
  assert.equal(attachForUser(configured,'112233'),toNano('0.05'));
  assert.equal(attachForUser(configured,'other'),toNano('0.06'));
+ assert.equal(structuredForUser(configured,'112233'),false,'owner smoke must use measurable raw attach');
+ assert.equal(structuredForUser(configured,'other'),true);
  assert.throws(()=>tonConfig({TON_JETTON_ATTACH_SMOKE_OWNER_GRAM:'0.05'}));
  const invoice='dep_'+'f'.repeat(32),queryId='42',amount=50000001n;
  const sender=Address.parse('0:'+'1'.repeat(64)),jettonWallet=Address.parse('0:'+'2'.repeat(64));

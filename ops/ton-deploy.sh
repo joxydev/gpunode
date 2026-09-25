@@ -106,6 +106,7 @@ PY
 [[ -f $release/backend/prisma/migrations/202609240002_cancel_invoice/migration.sql ]] || fail 'Нет миграции отмены счёта.'
 [[ -f $release/frontend/src/space-layout.css && -f $release/frontend/public/assets/cosmic-field.svg ]] || fail 'Нет адаптивной компоновки или космического фона.'
 [[ -f $release/backend/prisma/migrations/202609240001_ton_usdt_deposits/migration.sql && -f $release/backend/src/deposits/watcher.ts && -f $release/backend/test/ton-payments.test.ts && -f $release/frontend/public/tonconnect-manifest.json && -f $release/frontend/src/WalletView.tsx ]] || fail 'Отсутствует полный модуль USDT TON.'
+[[ -f $release/backend/prisma/migrations/202609250001_ton_proof_wallet_identity/migration.sql && -f $release/backend/src/ton/gasless.ts && -f $release/backend/src/ton/gasless-messages.ts && -f $release/backend/src/deposits/gasless-service.ts && -f $release/backend/test/gasless.test.ts ]] || fail 'Отсутствует TON Proof / gasless этап.'
 printf '%s  %s\n' 'b21177972dbdeedbea731e826b070ff7fb148ec1f96e7892536e67e40732ce88' "$release/frontend/public/documents/public-offer-aethermind.pdf" | sha256sum --check --status || fail 'PDF оферты отличается от утверждённого документа.'
 printf '%s  %s\n' '7678c55b371736e130bc52f5e401d7d9d33288ad6284ae2dcb7097d25ecdeca3' "$release/frontend/public/documents/user-agreement-aethermind.pdf" | sha256sum --check --status || fail 'Пользовательское соглашение повреждено.'
 printf '%s\n' "$sha" > "$release/DEPLOYED_COMMIT"
@@ -141,6 +142,7 @@ grep -Rqs 'Мои активы' frontend/dist/assets/*.js
 grep -Rqs 'Отменить счёт' frontend/dist/assets/*.js
 grep -Rqs 'cosmic-field.svg' frontend/dist/assets/*.css
 grep -Rqs 'Подключить TON-кошелёк' frontend/dist/assets/*.js
+grep -Rqs 'Проверка газлесс-перевода' frontend/dist/assets/*.js
 BUILD
 
 find "$release/frontend/dist" -type d -exec chmod 0755 {} +
@@ -175,7 +177,13 @@ printf 'TON_NETWORK=mainnet\nTON_CHAIN_ID=-239\nTON_WALLET_VERSION=W5\nAETHERMIN
 # Keep the public execution reserve unchanged until an actual Mainnet trace
 # proves that the candidate value covers this invoice's forward payload.
 # The server-side owner gets the smaller candidate only for a smoke payment.
-printf 'TON_JETTON_ATTACH_GRAM=0.1\nTON_JETTON_ATTACH_SMOKE_OWNER_GRAM=0.05\nENABLE_TON_GASLESS=false\n' >> "$envfile"
+public_attach=$(awk -F= '/^TON_JETTON_ATTACH_GRAM=/{value=$2} END{print value}' "$backup/runtime.env")
+[[ -n $public_attach ]] || public_attach='0.1'
+[[ $public_attach == 0.1 || $public_attach == 0.05 ]] || fail 'Неизвестное значение публичного TON attach.'
+owner_canary='0.05'
+[[ $public_attach == 0.1 ]] || owner_canary=''
+# A later deployment must never silently undo a separately audited Mainnet promotion.
+printf 'TON_JETTON_ATTACH_GRAM=%s\nTON_JETTON_ATTACH_SMOKE_OWNER_GRAM=%s\nTON_GASLESS_ATTACH_GRAM=0.05\nTONAPI_BASE=https://tonapi.io\nENABLE_TON_GASLESS=false\nTON_GASLESS_SMOKE_OWNER_ONLY=true\n' "$public_attach" "$owner_canary" >> "$envfile"
 chmod 0600 "$envfile"
 
 # runtime.env is deliberately root-only (0600). Load it in a root subshell,
@@ -194,7 +202,7 @@ run_with_runtime_env(){
 run_with_runtime_env bash -c '
   set -Eeuo pipefail
   cd "$1/backend"
-  node --input-type=module -e '\''import("./dist/deposits/service.js").then(async m=>{const c=m.config;const {attachForUser}=await import("./dist/ton/config.js");if(c.attachAmount!==100000000n||attachForUser(c,process.env.OWNER_TELEGRAM_ID)!==50000000n||attachForUser(c,"non-owner")!==100000000n)throw Error("Unsafe attach configuration");process.stdout.write("Owner-only attach canary confirmed\\n")})'\''
+      node --input-type=module -e '\''import("./dist/deposits/service.js").then(async m=>{const c=m.config;const {attachForUser}=await import("./dist/ton/config.js");const expected=BigInt(process.env.TON_JETTON_ATTACH_GRAM==="0.05"?50000000:100000000);if(c.attachAmount!==expected||attachForUser(c,process.env.OWNER_TELEGRAM_ID)!==50000000n||attachForUser(c,"non-owner")!==expected||c.gaslessEnabled)throw Error("Unsafe attach/gasless configuration");process.stdout.write("TON attach stage confirmed\\n")})'\''
 ' _ "$release"
 
 # TON Connect wallets resolve bridges and wallet icons on their own HTTPS hosts.
@@ -369,4 +377,4 @@ PY
 python3 "$release/ops/bot-config.py"
 
 trap - ERR INT TERM
-printf '\nГОТОВО: https://31.77.226.26/\nUSDT TON: публичный резерв не менялся; 0.05 GRAM доступно только владельцу для Mainnet smoke. Gasless выключен.\nКоммит: %s\nБэкап: %s\nВывод проводится через поддержку вручную; доходность и заказы за баланс выключены. Заново откройте Mini App.\n' "$sha" "$backup"
+printf '\nГОТОВО: https://31.77.226.26/\nUSDT TON: публичный attach %s GRAM; gasless выключен до отдельного smoke.\nКоммит: %s\nБэкап: %s\nВывод через поддержку; заказы за баланс выключены. Откройте Mini App заново.\n' "$public_attach" "$sha" "$backup"

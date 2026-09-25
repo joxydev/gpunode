@@ -14,6 +14,7 @@ import {createHmac} from 'node:crypto';
 import {createBrowserLogin,bindBrowserLogin,decideBrowserLogin,pollBrowserLogin,loginCode} from './browser-auth.js';
 import {journey,OFFER_DOCUMENT_SHA256,OFFER_NUMBER,OFFER_PUBLISHED_AT,OFFER_SIGNED_AT,OFFER_VERSION,offerTariffs} from './offer.js';
 import {DepositsService,config as tonConfig,center as tonCenter} from './deposits/service.js';
+import {GaslessDeposits} from './deposits/gasless-service.js';
 const {BOT_TOKEN,SESSION_SECRET,OWNER_TELEGRAM_ID,DATABASE_URL}=process.env;
 const AGREEMENT_VERSION='2026-09-14';
 const DEPOSIT_KINDS=['DEPOSIT','DEPOSIT_CONFIRMED','CRYPTO_DEPOSIT_CONFIRMED'];
@@ -21,6 +22,7 @@ const OPEN_TICKET_STATUSES=['OPEN','IN_PROGRESS','ANSWERED'];
 if(!BOT_TOKEN||!SESSION_SECRET||SESSION_SECRET.length<48||!OWNER_TELEGRAM_ID||!DATABASE_URL) throw Error('Missing secure runtime configuration');
 const db=new PrismaClient({adapter:new PrismaPg({connectionString:DATABASE_URL,max:4})});
 const deposits=new DepositsService(db);
+const gasless=new GaslessDeposits(db);
 type BotLanguage='ru'|'en'|'ro';
 function botLanguage(value?:string|null):BotLanguage{return value?.toLowerCase().startsWith('ro')?'ro':value?.toLowerCase().startsWith('en')?'en':'ru';}
 const botWords={
@@ -211,9 +213,11 @@ class Api {
     try{const jettonWallet=await tonCenter.jettonWallet(tonConfig.treasury);return {network:'mainnet',configured:true,reachable:true,treasuryJettonWallet:jettonWallet.toRawString()};}
     catch{return {network:'mainnet',configured:true,reachable:false};}
   }
-  @Get('v1/wallet') async tonWallet(@Headers('authorization') auth:string){return deposits.wallet(await participating(auth));}
+  @Get('v1/wallet') async tonWallet(@Headers('authorization') auth:string){const userId=await participating(auth);return {...await deposits.wallet(userId),gaslessAvailable:await gasless.availability(userId)};}
   @Get('v1/wallet/transactions') async tonHistory(@Headers('authorization') auth:string){return {items:await deposits.list(await participating(auth))};}
   @Post('v1/deposits') async createDeposit(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){return deposits.create(await participating(auth),body);}
+  @Post('v1/deposits/:id/gasless/estimate') async gaslessEstimate(@Headers('authorization') auth:string,@Param('id') id:string){return gasless.estimate(await participating(auth),uuid(id));}
+  @Post('v1/deposits/:id/gasless/send') async gaslessSend(@Headers('authorization') auth:string,@Param('id') id:string,@Body() body:Record<string,unknown>){return gasless.send(await participating(auth),uuid(id),body);}
   @Get('v1/deposits') async listDeposits(@Headers('authorization') auth:string){return {items:await deposits.list(await participating(auth))};}
   @Post('v1/deposits/:id/cancel') async cancelDeposit(@Headers('authorization') auth:string,@Param('id') id:string){return deposits.cancel(await participating(auth),uuid(id));}
   @Get('v1/deposits/:id') async depositById(@Headers('authorization') auth:string,@Param('id') id:string){return deposits.get(await participating(auth),uuid(id));}

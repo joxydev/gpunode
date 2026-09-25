@@ -2,9 +2,9 @@ import {randomBytes,createHash} from 'node:crypto';
 import {BadRequestException,ForbiddenException,NotFoundException,ServiceUnavailableException} from '@nestjs/common';
 import type {PrismaClient,TonDeposit} from '@prisma/client';
 import {Address} from '@ton/ton';
-import {tonConfig,usdtString,usdtUnits,friendly,attachForUser} from '../ton/config.js';
+import {tonConfig,usdtString,usdtUnits,friendly,attachForUser,structuredForUser} from '../ton/config.js';
 import {TonCenter} from '../ton/center.js';
-import {buildJettonTransfer} from '../ton/jetton.js';
+import {buildJettonTransfer,buildStructuredJettonTransfer} from '../ton/jetton.js';
 import {verifyTonProof,type ProofInput} from '../ton/proof.js';
 
 export const config=tonConfig();
@@ -12,7 +12,7 @@ export const center=new TonCenter(config);
 const hash=(nonce:string)=>createHash('sha256').update(nonce).digest('hex');
 const maxAge=20*60*1000;
 
-export function safeDeposit(row:TonDeposit){return {id:row.id,invoiceId:row.invoiceId,asset:'USDT',network:'TON',amount:usdtString(row.requestedMicros),receivedAmount:row.receivedMicros===null?null:usdtString(row.receivedMicros),status:row.status,sender:friendly(row.senderAddress),recipient:friendly(row.recipientAddress),jettonMaster:friendly(row.jettonMaster),txHash:row.txHash,traceId:row.traceId,createdAt:row.createdAt,expiresAt:row.expiresAt,confirmedAt:row.confirmedAt,creditedAt:row.creditedAt};}
+export function safeDeposit(row:TonDeposit){const meta=row.metadata,gasless=meta&&typeof meta==='object'&&!Array.isArray(meta)&&'gasless' in meta?meta.gasless:null;return {id:row.id,invoiceId:row.invoiceId,asset:'USDT',network:'TON',amount:usdtString(row.requestedMicros),receivedAmount:row.receivedMicros===null?null:usdtString(row.receivedMicros),status:row.status,sender:friendly(row.senderAddress),recipient:friendly(row.recipientAddress),jettonMaster:friendly(row.jettonMaster),txHash:row.txHash,traceId:row.traceId,gaslessSigned:!!(gasless&&typeof gasless==='object'&&!Array.isArray(gasless)&&'externalBoc' in gasless),createdAt:row.createdAt,expiresAt:row.expiresAt,confirmedAt:row.confirmedAt,creditedAt:row.creditedAt};}
 
 export class DepositsService {
  constructor(readonly db:PrismaClient){}
@@ -67,9 +67,9 @@ export class DepositsService {
    const hour=new Date(Date.now()-3600000);
    if(await tx.tonDeposit.count({where:{userId,createdAt:{gte:hour}}})>=5)throw new BadRequestException('Слишком много счетов за час.');
    if(await tx.tonDeposit.count({where:{userId,status:'PENDING',expiresAt:{gt:new Date()}}})>=1)throw new BadRequestException('Сначала завершите или отмените предыдущий счёт.');
-   return tx.tonDeposit.create({data:{invoiceId,userId,network:'TON',asset:'USDT',senderAddress:sender.toRawString(),recipientAddress:config.treasury.toRawString(),jettonMaster:config.master.toRawString(),requestedMicros:amount,expiresAt:new Date(Date.now()+maxAge),queryId}});
+   return tx.tonDeposit.create({data:{invoiceId,userId,network:'TON',asset:'USDT',senderAddress:sender.toRawString(),recipientAddress:config.treasury.toRawString(),jettonMaster:config.master.toRawString(),requestedMicros:amount,expiresAt:new Date(Date.now()+maxAge),queryId,metadata:{standardAttachNano:attachForUser(config,userId).toString()}}});
   });
-  return {deposit:safeDeposit(row),transaction:buildJettonTransfer({sender,treasury:config.treasury,jettonWallet:senderJetton,usdtAmount:amount,queryId,invoiceId,responseDestination:sender,attachAmount:attachForUser(config,userId),expiresAt:row.expiresAt})};
+  return {deposit:safeDeposit(row),transaction:buildJettonTransfer({sender,treasury:config.treasury,jettonWallet:senderJetton,usdtAmount:amount,queryId,invoiceId,responseDestination:sender,attachAmount:attachForUser(config,userId),expiresAt:row.expiresAt}),structuredTransaction:structuredForUser(config,userId)?buildStructuredJettonTransfer({sender,treasury:config.treasury,master:config.master,usdtAmount:amount,queryId,invoiceId,expiresAt:row.expiresAt}):null};
  }
  async cancel(userId:string,id:string){
   return this.db.$transaction(async tx=>{
@@ -77,7 +77,8 @@ export class DepositsService {
    const row=await tx.tonDeposit.findUnique({where:{id}});
    if(!row||row.userId!==userId)throw new NotFoundException('Счёт не найден.');
    if(row.status==='CANCELLED')return safeDeposit(row);
-   if(row.status!=='PENDING'||row.txHash||row.detectedAt)throw new BadRequestException('Платёж уже обрабатывается и не может быть отменён.');
+   const metadata=row.metadata;
+   if(row.status!=='PENDING'||row.txHash||row.detectedAt||metadata&&typeof metadata==='object'&&!Array.isArray(metadata)&&'gasless' in metadata&&metadata.gasless&&typeof metadata.gasless==='object'&&!Array.isArray(metadata.gasless)&&'externalBoc' in metadata.gasless)throw new BadRequestException('Подписанный перевод уже обрабатывается и не может быть отменён.');
    const updated=await tx.tonDeposit.update({where:{id},data:{status:'CANCELLED'}});
    return safeDeposit(updated);
   });
@@ -96,5 +97,5 @@ export class DepositsService {
   const [rows,total]=await Promise.all([this.db.unmatchedTonDeposit.findMany({orderBy:{detectedAt:'desc'},skip:page*30,take:30}),this.db.unmatchedTonDeposit.count()]);
   return {items:rows.map(row=>({id:row.id,txHash:row.txHash,invoiceId:row.invoiceId,sender:row.senderAddress?friendly(row.senderAddress):null,amount:row.amountMicros===null?null:usdtString(row.amountMicros),reason:row.reason,traceId:row.traceId,createdAt:row.detectedAt,status:'MANUAL_REVIEW'})),page,total,hasMore:(page+1)*30<total};
  }
- async adminDetail(id:string){const row=await this.db.tonDeposit.findUnique({where:{id},include:{user:{select:{id:true,name:true,username:true}}}});if(!row)throw new NotFoundException();return {...safeDeposit(row),user:row.user,queryId:row.queryId,metadata:row.metadata,ownerNotifiedAt:row.ownerNotifiedAt};}
+ async adminDetail(id:string){const row=await this.db.tonDeposit.findUnique({where:{id},include:{user:{select:{id:true,name:true,username:true}}}});if(!row)throw new NotFoundException();const meta=row.metadata&&typeof row.metadata==='object'&&!Array.isArray(row.metadata)?row.metadata:{};const gasless='gasless' in meta&&meta.gasless&&typeof meta.gasless==='object'&&!Array.isArray(meta.gasless)?meta.gasless:null;return {...safeDeposit(row),user:row.user,queryId:row.queryId,metadata:{...meta,gasless:gasless?{fee:gasless.fee,relaySubmittedAt:gasless.relaySubmittedAt,relayTraceId:gasless.relayTraceId}:undefined},ownerNotifiedAt:row.ownerNotifiedAt};}
 }

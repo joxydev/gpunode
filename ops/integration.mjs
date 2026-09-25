@@ -90,6 +90,7 @@ try{
  for(const path of ['/v1/wallet','/v1/wallet/transactions','/v1/deposits','/v1/admin/deposits','/v1/admin/deposits/unmatched','/v1/ton/health'])assert.equal((await call(path)).status,401);
  assert.equal((await call('/v1/admin/deposits',user)).status,403);
  assert.equal((await call('/v1/wallet',user)).data.balance,'12.000000');
+ assert.equal((await call('/v1/wallet',user)).data.gaslessAvailable,false,'gasless is disabled in isolated CI');
  assert.equal((await call('/v1/deposits',user,{asset:'USDT',network:'TON',amount:'50'})).status,503);
  assert.equal((await call('/v1/deposits',owner,{asset:'USDT',network:'TON',amount:'50'})).status,503,'no provider key in CI');
  const challenge=await call('/v1/ton/proof/payload',user,{});assert.equal(challenge.status,201);assert.equal(challenge.data.payload.length,64);
@@ -104,6 +105,10 @@ try{
   const master=(await import('@ton/ton')).Address.parse('EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs').toRawString();
   const config=(await import('../backend/dist/ton/config.js')).tonConfig();
   const newDeposit=await tonDb.tonDeposit.create({data:{invoiceId,userId:'22222',senderAddress:sender,recipientAddress:config.treasury.toRawString(),jettonMaster:master,requestedMicros:50000000n,queryId:'42',expiresAt:new Date(Date.now()+1200000)}});
+  assert.equal((await call('/v1/deposits/'+newDeposit.id+'/gasless/estimate',null,{})).status,401);
+  assert.equal((await call('/v1/deposits/'+newDeposit.id+'/gasless/estimate',other,{})).status,404);
+  assert.equal((await call('/v1/deposits/'+newDeposit.id+'/gasless/estimate',user,{})).status,503);
+  assert.equal((await call('/v1/deposits/'+newDeposit.id+'/gasless/send',user,{estimateId:'a'.repeat(32),internalBoc:'garbage'})).status,503);
   const note={txHash:'a'.repeat(64),traceId:null,time:now,sender,amount:50000000n,invoiceId,queryId:'42'};
   assert.equal(await applyNotification(tonDb,{...note,sender:'0:'+'b'.repeat(64)}),'UNMATCHED','other wallet cannot claim invoice');
   assert.equal((await call('/v1/deposits/'+newDeposit.id,user)).data.status,'PENDING');
@@ -117,6 +122,7 @@ try{
   assert.equal((await call('/v1/admin/deposits',owner)).data.items[0].status,'CREDITED');
   assert.equal((await call('/v1/admin/deposits/unmatched',owner)).data.total,1);
   const rows=await tonDb.walletLedger.findMany({where:{depositId:newDeposit.id}});assert.equal(rows.length,1);assert.equal(rows[0].balanceBefore,12000000n);assert.equal(rows[0].balanceAfter,62000000n);
+  const legacy=await tonDb.ledgerEntry.findMany({where:{sourceId:'ton-deposit:'+newDeposit.id}});assert.equal(legacy.length,1);assert.equal(legacy[0].amountMicros,50000000n);
   const replayInvoice=await tonDb.tonDeposit.create({data:{invoiceId:'dep_'+randomUUID().replaceAll('-','').slice(0,32),userId:'22222',senderAddress:sender,recipientAddress:config.treasury.toRawString(),jettonMaster:master,requestedMicros:50000000n,queryId:'42',expiresAt:new Date(Date.now()+1200000)}});
   assert.equal(await applyNotification(tonDb,{...note,invoiceId:replayInvoice.invoiceId}),'UNMATCHED','one chain transaction cannot fund a different invoice');
   assert.equal((await tonDb.tonDeposit.findUniqueOrThrow({where:{id:replayInvoice.id}})).status,'PENDING');
