@@ -47,8 +47,8 @@ fi
 
 case $mode in
  gasless-off)
-  pending=$(runuser -u postgres -- psql -Atqc "SELECT count(*) FROM deposits WHERE status='PENDING' AND expires_at>now() AND metadata #>> '{gasless,externalBoc}' IS NOT NULL" aethermind_v1)
-  [[ $pending == 0 ]] || { echo "Signed gasless invoices still pending: $pending. Wait for the watcher before disabling." >&2; exit 1; }
+  pending=$(runuser -u postgres -- psql -Atqc "SELECT count(*) FROM deposits WHERE status='PENDING' AND expires_at>now() AND metadata #> '{gasless}' IS NOT NULL" aethermind_v1)
+  [[ $pending == 0 ]] || { echo "Gasless quotes still open: $pending. Let them settle or expire before disabling." >&2; exit 1; }
   changed=1
   printf 'ENABLE_TON_GASLESS=false\nTON_GASLESS_SMOKE_OWNER_ONLY=true\n' >> "$envfile"
   ;;

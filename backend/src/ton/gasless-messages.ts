@@ -37,7 +37,7 @@ export function validateEstimate(estimate:RelayEstimate,expected:{wallet:Address
  const economic=signMessages.filter(x=>x.body.equals(expected.expectedBody));
  if(economic.length!==1)throw Error('Provider changed the invoice transfer');
  const feeMessage=signMessages.find(x=>x!==economic[0])!;
- if(fee>expected.maxFee||feeMessage.parsed.amount!==fee||!feeMessage.parsed.destination.equals(expected.relay)||feeMessage.parsed.forward!==0n||BigInt(economic[0].raw.amount)!==expected.economicAttach)throw Error('Provider fee or execution value differs from estimate');
+ if(fee>expected.maxFee||feeMessage.parsed.amount!==fee||!feeMessage.parsed.destination.equals(expected.relay)||![0n,1n].includes(feeMessage.parsed.forward)||BigInt(economic[0].raw.amount)!==expected.economicAttach)throw Error('Provider fee or execution value differs from estimate');
  // The current TONAPI cookbook sends an empty fee forward payload. An optional
  // 32-bit relayer marker is accepted; any other fee payload needs a protocol audit.
  const feePayload=feeMessage.parsed.comment.beginParse();

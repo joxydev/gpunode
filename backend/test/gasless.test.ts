@@ -89,6 +89,8 @@ test('gasless estimate preserves economic transfer and rejects mutations, fake f
  assert.throws(()=>validateEstimate({...estimate,messages:[toRaw(rogueFee),toRaw(body)]},expected));
  const markerFee=beginCell().storeUint(0x0f8a7ea5,32).storeUint(9,64).storeCoins(100000n).storeAddress(relay).storeAddress(relay).storeBit(0).storeCoins(0).storeBit(1).storeRef(beginCell().storeUint(0x878da6e3,32).endCell()).endCell();
  assert.equal(validateEstimate({...estimate,messages:[toRaw(markerFee),toRaw(body)]},expected).fee,100000n);
+ const feeForward=beginCell().storeUint(0x0f8a7ea5,32).storeUint(9,64).storeCoins(100000n).storeAddress(relay).storeAddress(relay).storeBit(0).storeCoins(2n).storeBit(0).endCell();
+ assert.throws(()=>validateEstimate({...estimate,messages:[toRaw(feeForward),toRaw(body)]},expected));
  const otherInvoice=buildJettonTransfer({sender:wallet,treasury:cfg.treasury,jettonWallet:jetton,usdtAmount:10000000n,queryId,invoiceId:'dep_'+'b'.repeat(32),responseDestination:relay,attachAmount:cfg.gaslessAttach,expiresAt});
  assert.throws(()=>validateEstimate({...estimate,messages:[toRaw(feeBody),toRaw(Cell.fromBase64(otherInvoice.messages[0].payload))]},expected));
 });

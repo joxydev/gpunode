@@ -198,7 +198,10 @@ prior_canary_only=$(awk -F= '/^TON_GASLESS_SMOKE_OWNER_ONLY=/{value=$2} END{prin
 [[ $prior_gasless != true ]] || fail 'Gasless уже включён: после завершения подписанных счетов временно отключите его через ton-promote-vps.sh gasless-off и повторите релиз с новым валидатором.'
 gasless_state=false
 canary_only=true
-printf 'TON_JETTON_ATTACH_GRAM=%s\nTON_JETTON_ATTACH_SMOKE_OWNER_GRAM=%s\nTON_PAYMENT_TEST_TELEGRAM_IDS=%s\nTON_GASLESS_ATTACH_GRAM=0.05\nTON_GASLESS_MAX_FEE_USDT=0.25\nTONAPI_BASE=https://tonapi.io\nENABLE_TON_GASLESS=%s\nTON_GASLESS_SMOKE_OWNER_ONLY=%s\n' "$public_attach" "$owner_canary" "$testers" "$gasless_state" "$canary_only" >> "$envfile"
+prior_fee=$(awk -F= '/^TON_GASLESS_MAX_FEE_USDT=/{value=$2} END{print value}' "$backup/runtime.env")
+[[ -n $prior_fee ]] || prior_fee='0.25'
+[[ $prior_fee =~ ^(0|[1-9][0-9]{0,8})(\.[0-9]{1,6})?$ ]] || fail 'Некорректный лимит комиссии TONAPI.'
+printf 'TON_JETTON_ATTACH_GRAM=%s\nTON_JETTON_ATTACH_SMOKE_OWNER_GRAM=%s\nTON_PAYMENT_TEST_TELEGRAM_IDS=%s\nTON_GASLESS_ATTACH_GRAM=0.05\nTON_GASLESS_MAX_FEE_USDT=%s\nTONAPI_BASE=https://tonapi.io\nENABLE_TON_GASLESS=%s\nTON_GASLESS_SMOKE_OWNER_ONLY=%s\n' "$public_attach" "$owner_canary" "$testers" "$prior_fee" "$gasless_state" "$canary_only" >> "$envfile"
 chmod 0600 "$envfile"
 
 # runtime.env is deliberately root-only (0600). Load it in a root subshell,
