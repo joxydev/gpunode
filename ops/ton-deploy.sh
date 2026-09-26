@@ -107,6 +107,7 @@ PY
 [[ -f $release/frontend/src/space-layout.css && -f $release/frontend/public/assets/cosmic-field.svg ]] || fail 'Нет адаптивной компоновки или космического фона.'
 [[ -f $release/backend/prisma/migrations/202609240001_ton_usdt_deposits/migration.sql && -f $release/backend/src/deposits/watcher.ts && -f $release/backend/test/ton-payments.test.ts && -f $release/frontend/public/tonconnect-manifest.json && -f $release/frontend/src/WalletView.tsx ]] || fail 'Отсутствует полный модуль USDT TON.'
 [[ -f $release/backend/prisma/migrations/202609250001_ton_proof_wallet_identity/migration.sql && -f $release/backend/prisma/migrations/202609260001_w5_wallet_id/migration.sql && -f $release/backend/src/ton/gasless.ts && -f $release/backend/src/ton/gasless-messages.ts && -f $release/backend/src/deposits/gasless-service.ts && -f $release/backend/test/gasless.test.ts ]] || fail 'Отсутствует TON Proof / gasless этап.'
+[[ -f $release/backend/src/db-utc.ts ]] || fail 'Отсутствует защита времени БД.'
 printf '%s  %s\n' 'b21177972dbdeedbea731e826b070ff7fb148ec1f96e7892536e67e40732ce88' "$release/frontend/public/documents/public-offer-aethermind.pdf" | sha256sum --check --status || fail 'PDF оферты отличается от утверждённого документа.'
 printf '%s  %s\n' '7678c55b371736e130bc52f5e401d7d9d33288ad6284ae2dcb7097d25ecdeca3' "$release/frontend/public/documents/user-agreement-aethermind.pdf" | sha256sum --check --status || fail 'Пользовательское соглашение повреждено.'
 printf '%s\n' "$sha" > "$release/DEPLOYED_COMMIT"
@@ -173,7 +174,7 @@ if ! grep -Eq '^TONCENTER_API_KEY=[A-Za-z0-9_-]{8,200}$' "$envfile"; then
   fi
 fi
 env_changed=1
-printf 'TON_NETWORK=mainnet\nTON_CHAIN_ID=-239\nTON_WALLET_VERSION=W5\nAETHERMIND_TREASURY_ADDRESS=UQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH\nUSDT_TON_MASTER=EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs\nTONCENTER_API_BASE=https://toncenter.com/api/v3\nENABLE_TON_USDT_DEPOSITS=true\n' >> "$envfile"
+printf 'TON_NETWORK=mainnet\nTON_CHAIN_ID=-239\nTON_WALLET_VERSION=W5\nAETHERMIND_TREASURY_ADDRESS=UQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH\nUSDT_TON_MASTER=EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs\nTONCENTER_API_BASE=https://toncenter.com/api/v3\nTON_TREASURY_MIN_GRAM=0.02\nENABLE_TON_USDT_DEPOSITS=true\n' >> "$envfile"
 # Keep the public execution reserve unchanged until an actual Mainnet trace
 # proves that the candidate value covers this invoice's forward payload.
 # The server-side owner and explicitly listed test accounts get the smaller

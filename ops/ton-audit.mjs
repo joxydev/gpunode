@@ -10,6 +10,7 @@ try{
  const {rows:[d]}=await db.query('SELECT d.id,d.user_id,d.status,d.invoice_id,d.tx_hash,d.trace_id,d.requested_micros::text AS amount,d.received_micros::text AS received,d.sender_address,d.recipient_address,d.jetton_master,d.metadata,w.wallet_version,w.public_key,w.wallet_id FROM deposits d LEFT JOIN user_wallets w ON w.user_id=d.user_id WHERE d.invoice_id=$1',[invoiceId]);
  const canaryIds=new Set([process.env.OWNER_TELEGRAM_ID,...(process.env.TON_PAYMENT_TEST_TELEGRAM_IDS||'').split(',').filter(Boolean)]);
  if(!d||!canaryIds.has(d.user_id)||d.status!=='CREDITED'||d.tx_hash!==txHash||d.amount!==d.received||!d.trace_id)throw Error('Authorized Mainnet canary invoice/trace/amount not verified');
+ if(d.metadata?.manualReconciliation)throw Error('Manually reconciled payment cannot promote the standard or gasless Mainnet canary');
  if(!Address.parse(d.recipient_address).equals(Address.parse(process.env.AETHERMIND_TREASURY_ADDRESS))||!Address.parse(d.jetton_master).equals(Address.parse(process.env.USDT_TON_MASTER)))throw Error('Unexpected treasury or Jetton master');
  if(Address.parse(d.sender_address).equals(Address.parse(d.recipient_address)))throw Error('A transfer from the treasury to itself cannot be a deposit smoke test');
  const {rows:[ledger]}=await db.query('SELECT COUNT(*)::int AS n, MIN(amount_micros)::text AS amount, MIN(balance_after-balance_before)::text AS delta FROM wallet_ledger WHERE deposit_id=$1',[d.id]);

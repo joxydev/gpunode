@@ -9,6 +9,17 @@ import {verifyTonProof,type ProofInput} from '../ton/proof.js';
 
 export const config=tonConfig();
 export const center=new TonCenter(config);
+// Short-lived read cache keeps the public Wallet screen from polling the chain
+// once for each visitor. An RPC failure fails closed for new invoices.
+let treasuryBalanceCache:{value:bigint;expires:number}|null=null;
+export async function treasuryReady(fresh=false){
+ try{
+  if(fresh||!treasuryBalanceCache||treasuryBalanceCache.expires<=Date.now()){
+   treasuryBalanceCache={value:await center.treasuryBalance(),expires:Date.now()+15000};
+  }
+  return treasuryBalanceCache.value>=config.minTreasuryReserve;
+ }catch{return false;}
+}
 const hash=(nonce:string)=>createHash('sha256').update(nonce).digest('hex');
 const maxAge=20*60*1000;
 
@@ -43,11 +54,12 @@ export class DepositsService {
    this.db.tonWallet.findUnique({where:{userId}}),this.db.ledgerEntry.aggregate({where:{userId},_sum:{amountMicros:true}}),
    this.db.tonDeposit.count({where:{userId,status:{in:['PENDING','DETECTED','CONFIRMED']}}})
   ]);
-  return {asset:'USDT',network:'TON',balance:usdtString(balance._sum.amountMicros||0n),connectedWallet:wallet?.verified?friendly(wallet.address):null,rawAddress:wallet?.verified?wallet.address:null,verified:Boolean(wallet?.verified),paymentCanary:paymentCanary(config,userId),depositsEnabled:this.allowed(userId)&&Boolean(config.apiKey),publicDepositsEnabled:config.enabled,minAmount:usdtString(config.min),maxAmount:usdtString(config.max),pending};
+  return {asset:'USDT',network:'TON',balance:usdtString(balance._sum.amountMicros||0n),connectedWallet:wallet?.verified?friendly(wallet.address):null,rawAddress:wallet?.verified?wallet.address:null,verified:Boolean(wallet?.verified),paymentCanary:paymentCanary(config,userId),depositsEnabled:this.allowed(userId)&&Boolean(config.apiKey)&&await treasuryReady(),publicDepositsEnabled:config.enabled,minAmount:usdtString(config.min),maxAmount:usdtString(config.max),pending};
  }
  async create(userId:string,body:Record<string,unknown>){
   if(!this.allowed(userId))throw new ServiceUnavailableException('Пополнение временно недоступно.');
   if(!config.apiKey)throw new ServiceUnavailableException('TON Center ещё не настроен.');
+  if(!await treasuryReady(true))throw new ServiceUnavailableException('Кошелёк сервиса временно не готов принимать платежи. Попробуйте позже.');
   if(!body||typeof body!=='object'||body.asset!=='USDT'||body.network!=='TON'||Object.keys(body).some(key=>!['amount','asset','network'].includes(key)))throw new BadRequestException('Принимается только USDT в сети TON.');
   let amount:bigint;
   try{amount=usdtUnits(body.amount);}catch{throw new BadRequestException('Некорректная сумма USDT.');}

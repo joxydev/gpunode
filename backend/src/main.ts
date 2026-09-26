@@ -2,8 +2,7 @@ import 'reflect-metadata';
 import {Body, Controller, Get, Post, Patch, Param, Headers, Module, UnauthorizedException, ForbiddenException, BadRequestException, ServiceUnavailableException} from '@nestjs/common';
 import {NestFactory} from '@nestjs/core';
 import {FastifyAdapter,NestFastifyApplication} from '@nestjs/platform-fastify';
-import {PrismaClient} from '@prisma/client';
-import {PrismaPg} from '@prisma/adapter-pg';
+import {createDb} from './db-utc.js';
 import {telegramIdentity,signSession,sessionIdentity,microsToDecimal,validWebhook} from './security.js';
 import {catalog} from './catalog.js';
 import {Query as QueryParam, NotFoundException} from '@nestjs/common';
@@ -20,7 +19,7 @@ const AGREEMENT_VERSION='2026-09-14';
 const DEPOSIT_KINDS=['DEPOSIT','DEPOSIT_CONFIRMED','CRYPTO_DEPOSIT_CONFIRMED'];
 const OPEN_TICKET_STATUSES=['OPEN','IN_PROGRESS','ANSWERED'];
 if(!BOT_TOKEN||!SESSION_SECRET||SESSION_SECRET.length<48||!OWNER_TELEGRAM_ID||!DATABASE_URL) throw Error('Missing secure runtime configuration');
-const db=new PrismaClient({adapter:new PrismaPg({connectionString:DATABASE_URL,max:4})});
+const db=createDb(DATABASE_URL,4);
 const deposits=new DepositsService(db);
 const gasless=new GaslessDeposits(db);
 type BotLanguage='ru'|'en'|'ro';
@@ -211,11 +210,13 @@ class Api {
     await participatingOwner(auth);
     let treasuryJettonWallet:string|null=null;
     if(tonConfig.apiKey)try{treasuryJettonWallet=(await tonCenter.jettonWallet(tonConfig.treasury)).toRawString();}catch{}
+    let treasuryGramNano:string|null=null;
+    if(tonConfig.apiKey)try{treasuryGramNano=(await tonCenter.treasuryBalance()).toString();}catch{}
     let indexed=false;
     if(tonConfig.apiKey)try{await tonCenter.transactions(Math.floor(Date.now()/1000)-300,0,1);indexed=true;}catch{}
     let relay:string|null=null;
     if(gasless.provider.enabled)try{relay=(await gasless.provider.relay())?.toRawString()||null;}catch{}
-    return {network:'mainnet',tonCenter:{configured:Boolean(tonConfig.apiKey),reachable:Boolean(treasuryJettonWallet),indexed},tonApi:{configured:Boolean(tonConfig.tonApiKey),reachable:Boolean(relay),officialUsdtSupported:Boolean(relay)},gasless:{enabled:gasless.provider.enabled,rollout:tonConfig.gaslessSmokeOwnerOnly?'canary':'public'},treasuryJettonWallet,relay};
+    return {network:'mainnet',tonCenter:{configured:Boolean(tonConfig.apiKey),reachable:Boolean(treasuryJettonWallet),indexed},tonApi:{configured:Boolean(tonConfig.tonApiKey),reachable:Boolean(relay),officialUsdtSupported:Boolean(relay)},gasless:{enabled:gasless.provider.enabled,rollout:tonConfig.gaslessSmokeOwnerOnly?'canary':'public'},treasuryJettonWallet,treasuryGramNano,minTreasuryGramNano:tonConfig.minTreasuryReserve.toString(),treasuryReady:treasuryGramNano!==null&&BigInt(treasuryGramNano)>=tonConfig.minTreasuryReserve,relay};
   }
   @Get('v1/wallet') async tonWallet(@Headers('authorization') auth:string){const userId=await participating(auth);return {...await deposits.wallet(userId),gaslessAvailable:await gasless.availability(userId)};}
   @Get('v1/wallet/transactions') async tonHistory(@Headers('authorization') auth:string){return {items:await deposits.list(await participating(auth))};}

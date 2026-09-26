@@ -57,6 +57,9 @@ test('USDT is exact base units, transaction is Jetton transfer with tagged invoi
  assert.equal(config.treasury.toRawString(),Address.parse(DEFAULT_TREASURY).toRawString());
  assert.equal(config.attachAmount,toNano('0.05'));
  assert.notEqual(config.attachAmount,toNano('0.1'));
+ assert.equal(config.minTreasuryReserve,toNano('0.02'));
+ assert.equal(tonConfig({TON_TREASURY_MIN_GRAM:'0.05'}).minTreasuryReserve,toNano('0.05'));
+ for(const reserve of ['0','0.0000000001','0.3','-0.05'])assert.throws(()=>tonConfig({TON_TREASURY_MIN_GRAM:reserve}));
  for(const attach of ['0','0.0000000001','0.3','-0.05','1e-2','0.05abc'])assert.throws(()=>tonConfig({TON_JETTON_ATTACH_GRAM:attach}));
  const configured=tonConfig({OWNER_TELEGRAM_ID:'112233',TON_PAYMENT_TEST_TELEGRAM_IDS:'6662169510',TON_JETTON_ATTACH_GRAM:'0.06',TON_JETTON_ATTACH_SMOKE_OWNER_GRAM:'0.05',ENABLE_TON_GASLESS:'true',TONAPI_API_KEY:'fake-test-key'});
  assert.equal(attachForUser(configured,'112233'),toNano('0.05'));

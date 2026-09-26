@@ -100,15 +100,23 @@ try{
  const challenge=await call('/v1/ton/proof/payload',user,{});assert.equal(challenge.status,201);assert.equal(challenge.data.payload.length,64);
  assert.equal((await call('/v1/ton/proof/verify',user,{network:'-3',address:'invalid',proof:{payload:challenge.data.payload}})).status,400);
  assert.equal((await call('/v1/deposits/'+randomUUID(),user)).status,404);
- const {PrismaClient}=await import('@prisma/client');const {PrismaPg}=await import('@prisma/adapter-pg');
+ const {createDb}=await import('../backend/dist/db-utc.js');
  const {applyNotification}=await import('../backend/dist/deposits/watcher.js');
- const tonDb=new PrismaClient({adapter:new PrismaPg({connectionString:process.env.DATABASE_URL,max:2})});
+ const tonDb=createDb(process.env.DATABASE_URL,2);
  try{
   const now=Math.floor(Date.now()/1000),invoiceId='dep_'+randomUUID().replaceAll('-','').slice(0,32);
   const sender='0:'+'a'.repeat(64),recipient='0:11c6c1ab1ed7a4b510a9032e3f4afa1c020fe5a5bd19f4e6278c89270afa9082';
   const master=(await import('@ton/ton')).Address.parse('EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs').toRawString();
   const config=(await import('../backend/dist/ton/config.js')).tonConfig();
   const newDeposit=await tonDb.tonDeposit.create({data:{invoiceId,userId:'22222',senderAddress:sender,recipientAddress:config.treasury.toRawString(),jettonMaster:master,requestedMicros:50000000n,queryId:'42',expiresAt:new Date(Date.now()+1200000)}});
+  // PostgreSQL runs in the live server's timezone, but stored instants must stay UTC.
+  const sql=new pg.Client({connectionString:process.env.DATABASE_URL});await sql.connect();
+  try{
+   assert.equal(Object.values((await sql.query('SHOW TIME ZONE')).rows[0])[0],'Europe/Chisinau');
+   const stamps=(await sql.query('SELECT extract(epoch FROM created_at)*1000 AS created,extract(epoch FROM expires_at)*1000 AS expires FROM deposits WHERE id=$1',[newDeposit.id])).rows[0];
+   assert.ok(Math.abs(Number(stamps.created)-Date.now())<10000,'invoice createdAt must be real UTC instant');
+   assert.ok(Math.abs(Number(stamps.expires)-(Date.now()+1200000))<10000,'invoice expiration must be real UTC instant');
+  }finally{await sql.end()}
   assert.equal((await call('/v1/deposits/'+newDeposit.id+'/gasless/estimate',null,{})).status,401);
   assert.equal((await call('/v1/deposits/'+newDeposit.id+'/gasless/estimate',other,{})).status,404);
   assert.equal((await call('/v1/deposits/'+newDeposit.id+'/gasless/estimate',user,{})).status,503);

@@ -18,6 +18,9 @@ export class TonCenter {
    return Buffer.from(result.stack.readBigNumber().toString(16).padStart(64,'0'),'hex');
   }catch{return null;}
  }
+ async treasuryBalance():Promise<bigint>{
+  return this.client.getBalance(this.config.treasury);
+ }
  async transactions(from:number,offset:number,limit=100){
   const url=new URL(this.config.apiBase+'/transactions');
   url.searchParams.set('account',this.config.treasury.toRawString());

@@ -1,12 +1,12 @@
 import {PrismaClient} from '@prisma/client';
-import {PrismaPg} from '@prisma/adapter-pg';
+import {createDb} from '../db-utc.js';
 import {Address} from '@ton/ton';
 import {config,center} from './service.js';
 import {parseNotification,type Notification,type ChainTransaction} from '../ton/notification.js';
 import {usdtString,friendly} from '../ton/config.js';
 
 // A dedicated systemd service runs this worker; API processes never scan or credit.
-const db=new PrismaClient({adapter:new PrismaPg({connectionString:process.env.DATABASE_URL!,max:3})});
+const db=createDb(process.env.DATABASE_URL!,3);
 
 async function unmatched(note:Notification,reason:string){
  await db.unmatchedTonDeposit.upsert({where:{txHash:note.txHash},create:{txHash:note.txHash,invoiceId:note.invoiceId,senderAddress:note.sender,amountMicros:note.amount,reason,traceId:note.traceId},update:{}});

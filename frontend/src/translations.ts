@@ -1,4 +1,7 @@
 export const translations:Record<string,[string,string]> = {
+  "Готов": ["Ready","Pregătit"],
+  "Нужно пополнить": ["Top up required","Necesită alimentare"],
+  "Новые пополнения приостановлены: казначейскому кошельку нужен запас GRAM для уведомлений.": ["New deposits are paused: the treasury wallet needs a GRAM reserve to process notifications.","Depunerile noi sunt suspendate: portofelul trezoreriei are nevoie de o rezervă GRAM pentru notificări."],
   "Не требуется": ["Not required","Nu este necesar"],
   "Оценка комиссии истекла. Отмените счёт и создайте новый.": ["Fee quote expired. Cancel this invoice and create a new one.","Estimarea taxei a expirat. Anulează factura și creează una nouă."],
   "Кошелёк не поддерживает подпись без GRAM. Доступен обычный перевод.": ["This wallet cannot sign without GRAM. A standard transfer is available.","Acest portofel nu poate semna fără GRAM. Este disponibil transferul obișnuit."],

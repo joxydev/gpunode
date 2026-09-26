@@ -35,6 +35,7 @@ export function tonConfig(env:NodeJS.ProcessEnv=process.env){
  const max=usdtUnits(env.TON_DEPOSIT_MAX_USDT||'10000');
  if(min>max)throw Error('Invalid deposit limits');
  const attachAmount=attachNanograms(env.TON_JETTON_ATTACH_GRAM||'0.05');
+ const minTreasuryReserve=attachNanograms(env.TON_TREASURY_MIN_GRAM||'0.02');
  // Canary IDs are obtained from the authenticated Telegram session, never a supplied username.
  if(env.TON_JETTON_ATTACH_SMOKE_OWNER_GRAM&&!/^\d{1,20}$/.test(env.OWNER_TELEGRAM_ID||''))throw Error('OWNER_TELEGRAM_ID required for owner attach smoke');
  const ownerSmokeAttach=env.TON_JETTON_ATTACH_SMOKE_OWNER_GRAM?attachNanograms(env.TON_JETTON_ATTACH_SMOKE_OWNER_GRAM):null;
@@ -49,7 +50,7 @@ export function tonConfig(env:NodeJS.ProcessEnv=process.env){
  const gaslessAttach=attachNanograms(env.TON_GASLESS_ATTACH_GRAM||'0.05');
  const gaslessMaxFee=usdtUnits(env.TON_GASLESS_MAX_FEE_USDT||'0.25');
  if(gaslessMaxFee>usdtUnits('10'))throw Error('TON_GASLESS_MAX_FEE_USDT out of range');
- return {treasury,master,apiBase,apiKey,enabled,publicUrl,domain:publicUrl.hostname,min,max,attachAmount,ownerSmokeAttach,smokeOwnerId,paymentTestIds,tonApiBase,tonApiKey,gaslessEnabled,gaslessAttach,gaslessMaxFee,gaslessSmokeOwnerOnly,gaslessOwnerId:env.OWNER_TELEGRAM_ID||null};
+ return {treasury,master,apiBase,apiKey,enabled,publicUrl,domain:publicUrl.hostname,min,max,attachAmount,minTreasuryReserve,ownerSmokeAttach,smokeOwnerId,paymentTestIds,tonApiBase,tonApiKey,gaslessEnabled,gaslessAttach,gaslessMaxFee,gaslessSmokeOwnerOnly,gaslessOwnerId:env.OWNER_TELEGRAM_ID||null};
 }
 
 export function paymentCanary(config:ReturnType<typeof tonConfig>,userId:string){

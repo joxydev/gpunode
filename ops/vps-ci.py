@@ -69,7 +69,8 @@ try:
     while api_port == db_port:
         api_port = free_port()
     run([pg / 'initdb', '-D', data, '-U', 'aether_ci', '--pwfile=' + str(password_file), '--auth-local=trust', '--auth-host=scram-sha-256', '--encoding=UTF8', '--no-locale'])
-    run([pg / 'pg_ctl', '-D', data, '-l', ci_root / 'postgres.log', '-w', '-t', '30', '-o', f'-h 127.0.0.1 -p {db_port} -k {ci_root} -c shared_buffers=16MB -c max_connections=12 -c work_mem=2MB', 'start'])
+    # Reproduce the live database timezone; Prisma pg connections must still use UTC.
+    run([pg / 'pg_ctl', '-D', data, '-l', ci_root / 'postgres.log', '-w', '-t', '30', '-o', f'-h 127.0.0.1 -p {db_port} -k {ci_root} -c timezone=Europe/Chisinau -c shared_buffers=16MB -c max_connections=12 -c work_mem=2MB', 'start'])
     started = True
     run([pg / 'createdb', '-h', ci_root, '-p', str(db_port), '-U', 'aether_ci', 'aethermind_ci'])
     env.update({
