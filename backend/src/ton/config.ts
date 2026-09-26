@@ -47,7 +47,9 @@ export function tonConfig(env:NodeJS.ProcessEnv=process.env){
  const gaslessSmokeOwnerOnly=env.TON_GASLESS_SMOKE_OWNER_ONLY!=='false';
  if(gaslessEnabled&&gaslessSmokeOwnerOnly&&!/^\d{1,20}$/.test(env.OWNER_TELEGRAM_ID||''))throw Error('OWNER_TELEGRAM_ID required for gasless canary');
  const gaslessAttach=attachNanograms(env.TON_GASLESS_ATTACH_GRAM||'0.05');
- return {treasury,master,apiBase,apiKey,enabled,publicUrl,domain:publicUrl.hostname,min,max,attachAmount,ownerSmokeAttach,smokeOwnerId,paymentTestIds,tonApiBase,tonApiKey,gaslessEnabled,gaslessAttach,gaslessSmokeOwnerOnly,gaslessOwnerId:env.OWNER_TELEGRAM_ID||null};
+ const gaslessMaxFee=usdtUnits(env.TON_GASLESS_MAX_FEE_USDT||'0.25');
+ if(gaslessMaxFee>usdtUnits('10'))throw Error('TON_GASLESS_MAX_FEE_USDT out of range');
+ return {treasury,master,apiBase,apiKey,enabled,publicUrl,domain:publicUrl.hostname,min,max,attachAmount,ownerSmokeAttach,smokeOwnerId,paymentTestIds,tonApiBase,tonApiKey,gaslessEnabled,gaslessAttach,gaslessMaxFee,gaslessSmokeOwnerOnly,gaslessOwnerId:env.OWNER_TELEGRAM_ID||null};
 }
 
 export function paymentCanary(config:ReturnType<typeof tonConfig>,userId:string){

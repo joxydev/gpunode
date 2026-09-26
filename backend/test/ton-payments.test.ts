@@ -24,7 +24,8 @@ test('TON Proof binds public key, stateInit, nonce, domain, network and time',as
  const digest=sha(Buffer.concat([Buffer.from([255,255]),Buffer.from('ton-connect'),sha(msg)]));
  const input={address:wallet.address.toRawString(),network:'-239',walletStateInit:state,proof:{timestamp,domain:{lengthBytes:domain.length,value:config.domain},payload,signature:edSign(null,digest,privateKey).toString('base64')}};
  const noGetter={publicKey:async()=>{throw Error('on-chain lookup should not be needed')}};
- assert.deepEqual(await verifyTonProof(input,payload,config,noGetter),{address:wallet.address.toRawString(),publicKey:key.toString('hex'),walletVersion:'W5'});
+ const data=wallet.init.data.beginParse();data.loadBit();data.loadUint(32);const walletId=data.loadUint(32).toString();
+ assert.deepEqual(await verifyTonProof(input,payload,config,noGetter),{address:wallet.address.toRawString(),publicKey:key.toString('hex'),walletVersion:'W5',walletId});
  await assert.rejects(verifyTonProof(input,'b'.repeat(64),config,noGetter));
  await assert.rejects(verifyTonProof({...input,network:'-3'},payload,config,noGetter));
  await assert.rejects(verifyTonProof({...input,proof:{...input.proof,domain:{lengthBytes:7,value:'evil.com'}}},payload,config,noGetter));
@@ -45,7 +46,7 @@ test('valid V4 TON Proof persists a verified key and never claims W5',async()=>{
  const wc=Buffer.alloc(4);wc.writeInt32BE(0);
  const digest=sha(Buffer.concat([Buffer.from([255,255]),Buffer.from('ton-connect'),sha(Buffer.concat([Buffer.from('ton-proof-item-v2/'),wc,wallet.address.hash,len,domain,ts,Buffer.from(payload)]))]));
  const input={address:wallet.address.toRawString(),network:'-239',walletStateInit:beginCell().store(storeStateInit(wallet.init)).endCell().toBoc().toString('base64'),proof:{timestamp,domain:{lengthBytes:domain.length,value:config.domain},payload,signature:edSign(null,digest,privateKey).toString('base64')}};
- assert.deepEqual(await verifyTonProof(input,payload,config,{publicKey:async()=>{throw Error('unexpected getter')}}),{address:wallet.address.toRawString(),publicKey:key.toString('hex'),walletVersion:'V4R2'});
+ assert.deepEqual(await verifyTonProof(input,payload,config,{publicKey:async()=>{throw Error('unexpected getter')}}),{address:wallet.address.toRawString(),publicKey:key.toString('hex'),walletVersion:'V4R2',walletId:null});
 });
 
 test('USDT is exact base units, transaction is Jetton transfer with tagged invoice',()=>{
@@ -101,12 +102,13 @@ test('incoming notification rejects fake master wallet, bounce, missing invoice 
 test('invoice migration accepts cancellation and still constrains duplicate transactions',async()=>{
  const db=new PGlite();const migration=(name:string)=>readFileSync(new URL('../prisma/migrations/'+name+'/migration.sql',import.meta.url),'utf8');
  try{
-  for(const name of ['202609130001_initial','202609130002_market','202609150001_browser_login','202609150002_user_agreement','202609150003_managed_requests','202609190001_owner_support','202609220001_public_offer','202609220002_owner_center','202609230001_user_language','202609230002_test_cycle','202609240001_ton_usdt_deposits','202609240002_cancel_invoice','202609250001_ton_proof_wallet_identity'])await db.exec(migration(name));
+  for(const name of ['202609130001_initial','202609130002_market','202609150001_browser_login','202609150002_user_agreement','202609150003_managed_requests','202609190001_owner_support','202609220001_public_offer','202609220002_owner_center','202609230001_user_language','202609230002_test_cycle','202609240001_ton_usdt_deposits','202609240002_cancel_invoice','202609250001_ton_proof_wallet_identity','202609260001_w5_wallet_id'])await db.exec(migration(name));
   await db.exec("INSERT INTO \"User\"(id,name) VALUES ('2','User');");
-  await db.exec(`INSERT INTO user_wallets(user_id,address,public_key,wallet_version) VALUES ('2','0:${'0'.repeat(63)}1','${'a'.repeat(64)}','W5')`);
-  const verified=await db.query<{public_key:string;wallet_version:string}>("SELECT public_key,wallet_version FROM user_wallets WHERE user_id='2'");
-  assert.equal(verified.rows[0].public_key,'a'.repeat(64));assert.equal(verified.rows[0].wallet_version,'W5');
+  await db.exec(`INSERT INTO user_wallets(user_id,address,public_key,wallet_version,wallet_id) VALUES ('2','0:${'0'.repeat(63)}1','${'a'.repeat(64)}','W5','2147483648')`);
+  const verified=await db.query<{public_key:string;wallet_version:string;wallet_id:string}>("SELECT public_key,wallet_version,wallet_id FROM user_wallets WHERE user_id='2'");
+  assert.equal(verified.rows[0].public_key,'a'.repeat(64));assert.equal(verified.rows[0].wallet_version,'W5');assert.equal(verified.rows[0].wallet_id,'2147483648');
   await assert.rejects(db.exec("UPDATE user_wallets SET public_key='not-a-key' WHERE user_id='2'"));
+  await assert.rejects(db.exec("UPDATE user_wallets SET wallet_id='invalid' WHERE user_id='2'"));
   await db.exec("INSERT INTO deposits(invoice_id,user_id,sender_address,recipient_address,jetton_master,requested_micros,query_id,expires_at) VALUES ('dep_test','2','0:0000000000000000000000000000000000000000000000000000000000000000','0:0000000000000000000000000000000000000000000000000000000000000000','0:0000000000000000000000000000000000000000000000000000000000000000',50000000,'7',now()+interval '20 minutes')");
   await assert.rejects(db.exec("INSERT INTO deposits(invoice_id,user_id,sender_address,recipient_address,jetton_master,requested_micros,query_id,expires_at) SELECT invoice_id,user_id,sender_address,recipient_address,jetton_master,requested_micros,query_id,expires_at FROM deposits"));
   await db.exec("UPDATE deposits SET status='CANCELLED' WHERE invoice_id='dep_test'");

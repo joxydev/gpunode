@@ -27,14 +27,14 @@ export class DepositsService {
  async verify(userId:string,input:ProofInput){
   const challenge=await this.db.tonProofChallenge.findUnique({where:{nonceHash:hash(input?.proof?.payload||'')}});
   if(!challenge||challenge.userId!==userId||challenge.consumedAt||challenge.expiresAt<=new Date())throw new BadRequestException('Подпись кошелька устарела. Подключите его снова.');
-  let proof:{address:string;publicKey:string;walletVersion:string};
+  let proof:{address:string;publicKey:string;walletVersion:string;walletId:string|null};
   try{proof=await verifyTonProof(input,input.proof.payload,config,center);}catch{throw new BadRequestException('Не удалось подтвердить владение TON-кошельком.');}
   return this.db.$transaction(async tx=>{
    const used=await tx.tonProofChallenge.updateMany({where:{id:challenge.id,consumedAt:null,expiresAt:{gt:new Date()}},data:{consumedAt:new Date()}});
    if(!used.count)throw new BadRequestException('Подпись уже использована.');
    const owner=await tx.tonWallet.findUnique({where:{address:proof.address}});
    if(owner&&owner.userId!==userId)throw new ForbiddenException('Кошелёк привязан к другому аккаунту.');
-   const wallet=await tx.tonWallet.upsert({where:{userId},create:{userId,address:proof.address,network:'TON',walletApp:String(input.walletApp||'').slice(0,100)||null,publicKey:proof.publicKey,walletVersion:proof.walletVersion,verified:true},update:{address:proof.address,network:'TON',walletApp:String(input.walletApp||'').slice(0,100)||null,publicKey:proof.publicKey,walletVersion:proof.walletVersion,verified:true,lastConnectedAt:new Date()}});
+   const wallet=await tx.tonWallet.upsert({where:{userId},create:{userId,address:proof.address,network:'TON',walletApp:String(input.walletApp||'').slice(0,100)||null,publicKey:proof.publicKey,walletVersion:proof.walletVersion,walletId:proof.walletId,verified:true},update:{address:proof.address,network:'TON',walletApp:String(input.walletApp||'').slice(0,100)||null,publicKey:proof.publicKey,walletVersion:proof.walletVersion,walletId:proof.walletId,verified:true,lastConnectedAt:new Date()}});
    return {address:friendly(wallet.address),network:'TON',verified:true,walletVersion:wallet.walletVersion};
   });
  }
@@ -98,5 +98,5 @@ export class DepositsService {
   const [rows,total]=await Promise.all([this.db.unmatchedTonDeposit.findMany({orderBy:{detectedAt:'desc'},skip:page*30,take:30}),this.db.unmatchedTonDeposit.count()]);
   return {items:rows.map(row=>({id:row.id,txHash:row.txHash,invoiceId:row.invoiceId,sender:row.senderAddress?friendly(row.senderAddress):null,amount:row.amountMicros===null?null:usdtString(row.amountMicros),reason:row.reason,traceId:row.traceId,createdAt:row.detectedAt,status:'MANUAL_REVIEW'})),page,total,hasMore:(page+1)*30<total};
  }
- async adminDetail(id:string){const row=await this.db.tonDeposit.findUnique({where:{id},include:{user:{select:{id:true,name:true,username:true}}}});if(!row)throw new NotFoundException();const meta=row.metadata&&typeof row.metadata==='object'&&!Array.isArray(row.metadata)?row.metadata:{};const gasless='gasless' in meta&&meta.gasless&&typeof meta.gasless==='object'&&!Array.isArray(meta.gasless)?meta.gasless:null;return {...safeDeposit(row),user:row.user,queryId:row.queryId,metadata:{...meta,gasless:gasless?{fee:gasless.fee,relaySubmittedAt:gasless.relaySubmittedAt,relayTraceId:gasless.relayTraceId}:undefined},ownerNotifiedAt:row.ownerNotifiedAt};}
+ async adminDetail(id:string){const row=await this.db.tonDeposit.findUnique({where:{id},include:{user:{select:{id:true,name:true,username:true}}}});if(!row)throw new NotFoundException();const meta=row.metadata&&typeof row.metadata==='object'&&!Array.isArray(row.metadata)?row.metadata:{};const gasless='gasless' in meta&&meta.gasless&&typeof meta.gasless==='object'&&!Array.isArray(meta.gasless)?meta.gasless:null;return {...safeDeposit(row),user:row.user,queryId:row.queryId,metadata:{...meta,gasless:gasless?{protocol:gasless.protocol,fee:gasless.fee,totalMicros:gasless.totalMicros,relayAddress:gasless.relayAddress,validUntil:gasless.expiresAt,messageDigest:gasless.messageDigest,signTraceId:gasless.signTraceId,relayAttemptAt:gasless.relayAttemptAt,relaySubmittedAt:gasless.relaySubmittedAt,relayExternalHash:gasless.relayExternalHash,relayAttempts:gasless.relayAttempts}:undefined},ownerNotifiedAt:row.ownerNotifiedAt};}
 }

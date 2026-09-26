@@ -4,7 +4,7 @@ set -Eeuo pipefail
 umask 077
 [[ $EUID -eq 0 ]] || { echo 'Run with sudo on the VPS.' >&2; exit 1; }
 mode=${1:-};invoice=${2:-};hash=${3:-}
-[[ $mode == standard || $mode == gasless-canary || $mode == gasless-owner || $mode == gasless-all ]] || { echo 'Mode: standard | gasless-canary | gasless-all' >&2; exit 1; }
+[[ $mode == standard || $mode == gasless-canary || $mode == gasless-owner || $mode == gasless-all || $mode == gasless-off ]] || { echo 'Mode: standard | gasless-canary | gasless-all | gasless-off' >&2; exit 1; }
 cd /
 exec 9>/var/lock/gpunode-deploy.lock
 flock -n 9 || { echo 'Another deployment is running.' >&2; exit 1; }
@@ -46,6 +46,12 @@ if [[ $mode == standard || $mode == gasless-all ]]; then
 fi
 
 case $mode in
+ gasless-off)
+  pending=$(runuser -u postgres -- psql -Atqc "SELECT count(*) FROM deposits WHERE status='PENDING' AND expires_at>now() AND metadata #>> '{gasless,externalBoc}' IS NOT NULL" aethermind_v1)
+  [[ $pending == 0 ]] || { echo "Signed gasless invoices still pending: $pending. Wait for the watcher before disabling." >&2; exit 1; }
+  changed=1
+  printf 'ENABLE_TON_GASLESS=false\nTON_GASLESS_SMOKE_OWNER_ONLY=true\n' >> "$envfile"
+  ;;
  standard)
   [[ $(awk -F= '/^TON_JETTON_ATTACH_GRAM=/{v=$2}END{print v}' "$envfile") == 0.1 ]] || { echo 'Public attach was already changed.' >&2; exit 1; }
   changed=1

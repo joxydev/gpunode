@@ -31,9 +31,15 @@ export class TonApiGasless {
   if(!Array.isArray(data?.messages)||!Number.isInteger(data.valid_until)||typeof data.commission!=='string'||typeof data.protocol_name!=='string')throw Error('Invalid TONAPI estimate');
   return {relayAddress:Address.parse(String(data.relay_address)),commission:data.commission,messages:data.messages as RelayMessage[],from:Address.parse(String(data.from)),validUntil:Number(data.valid_until),protocolName:data.protocol_name};
  }
- async send(publicKey:string,externalBocHex:string):Promise<{external:string|null}>{
+ async usdtBalance(owner:Address,expectedJettonWallet:Address):Promise<bigint>{
+  const path='/v2/accounts/'+encodeURIComponent(owner.toRawString())+'/jettons/'+encodeURIComponent(this.config.master.toRawString());
+  const data=await this.call(path) as {balance?:unknown;jetton?:{address?:unknown};wallet_address?:{address?:unknown}};
+  if(!data||typeof data.balance!=='string'||!/^\d{1,30}$/.test(data.balance)||!Address.parse(String(data.jetton?.address)).equals(this.config.master)||!Address.parse(String(data.wallet_address?.address)).equals(expectedJettonWallet))throw Error('Invalid official USDT balance response');
+  return BigInt(data.balance);
+ }
+ async send(publicKey:string,externalBocHex:string):Promise<{external:string|null;protocolName:string}>{
   const data=await this.call('/v2/gasless/send',{wallet_public_key:publicKey,boc:externalBocHex}) as Record<string,unknown>;
-  if(typeof data?.protocol_name!=='string')throw Error('Invalid TONAPI send response');
-  return {external:typeof data.external==='string'?data.external:null};
+  if(!['gasless','gasless-generic-transfer'].includes(String(data?.protocol_name)))throw Error('Invalid TONAPI send protocol');
+  return {external:typeof data.external==='string'?data.external:null,protocolName:String(data.protocol_name)};
  }
 }

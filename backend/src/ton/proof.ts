@@ -13,7 +13,7 @@ const contracts=[
  {version:'V4R2',code:WalletContractV4.create({workchain:0,publicKey:empty}).init.code,extract:(cell:Cell)=>{const s=cell.beginParse();s.loadUint(32);s.loadUint(32);return s.loadBuffer(32)}},
  {version:'V3R2',code:WalletContractV3R2.create({workchain:0,publicKey:empty}).init.code,extract:(cell:Cell)=>{const s=cell.beginParse();s.loadUint(32);s.loadUint(32);return s.loadBuffer(32)}}
 ];
-export async function verifyTonProof(input:ProofInput,expectedPayload:string,config:Config,center:Pick<TonCenter,'publicKey'>,now=Date.now()):Promise<{address:string;publicKey:string;walletVersion:string}>{
+export async function verifyTonProof(input:ProofInput,expectedPayload:string,config:Config,center:Pick<TonCenter,'publicKey'>,now=Date.now()):Promise<{address:string;publicKey:string;walletVersion:string;walletId:string|null}>{
  if(!input||typeof input!=='object'||input.network!=='-239'||typeof input.address!=='string'||
   typeof input.walletStateInit!=='string'||input.walletStateInit.length>12000||
   !input.proof||typeof input.proof.payload!=='string'||input.proof.payload!==expectedPayload||
@@ -37,5 +37,7 @@ export async function verifyTonProof(input:ProofInput,expectedPayload:string,con
  const digest=sha(Buffer.concat([Buffer.from([255,255]),Buffer.from('ton-connect'),sha(msg)]));
  const verified=edVerify(null,digest,createPublicKey({key:Buffer.concat([spki,key]),format:'der',type:'spki'}),Buffer.from(input.proof.signature,'base64'));
  if(!verified)throw Error('TON Proof signature mismatch');
- return {address:address.toRawString(),publicKey:key.toString('hex'),walletVersion};
+ let walletId:string|null=null;
+ if(walletVersion==='W5'&&state.data){const data=state.data.beginParse();data.loadBit();data.loadUint(32);walletId=data.loadUint(32).toString();}
+ return {address:address.toRawString(),publicKey:key.toString('hex'),walletVersion,walletId};
 }

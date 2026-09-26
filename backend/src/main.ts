@@ -209,9 +209,13 @@ class Api {
   @Post('v1/ton/proof/verify') async tonVerify(@Headers('authorization') auth:string,@Body() body:any){return deposits.verify(await participating(auth),body);}
   @Get('v1/ton/health') async tonHealth(@Headers('authorization') auth:string){
     await participatingOwner(auth);
-    if(!tonConfig.apiKey)return {network:'mainnet',configured:false,reachable:false};
-    try{const jettonWallet=await tonCenter.jettonWallet(tonConfig.treasury);return {network:'mainnet',configured:true,reachable:true,treasuryJettonWallet:jettonWallet.toRawString()};}
-    catch{return {network:'mainnet',configured:true,reachable:false};}
+    let treasuryJettonWallet:string|null=null;
+    if(tonConfig.apiKey)try{treasuryJettonWallet=(await tonCenter.jettonWallet(tonConfig.treasury)).toRawString();}catch{}
+    let indexed=false;
+    if(tonConfig.apiKey)try{await tonCenter.transactions(Math.floor(Date.now()/1000)-300,0,1);indexed=true;}catch{}
+    let relay:string|null=null;
+    if(gasless.provider.enabled)try{relay=(await gasless.provider.relay())?.toRawString()||null;}catch{}
+    return {network:'mainnet',tonCenter:{configured:Boolean(tonConfig.apiKey),reachable:Boolean(treasuryJettonWallet),indexed},tonApi:{configured:Boolean(tonConfig.tonApiKey),reachable:Boolean(relay),officialUsdtSupported:Boolean(relay)},gasless:{enabled:gasless.provider.enabled,rollout:tonConfig.gaslessSmokeOwnerOnly?'canary':'public'},treasuryJettonWallet,relay};
   }
   @Get('v1/wallet') async tonWallet(@Headers('authorization') auth:string){const userId=await participating(auth);return {...await deposits.wallet(userId),gaslessAvailable:await gasless.availability(userId)};}
   @Get('v1/wallet/transactions') async tonHistory(@Headers('authorization') auth:string){return {items:await deposits.list(await participating(auth))};}

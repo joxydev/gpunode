@@ -106,7 +106,7 @@ PY
 [[ -f $release/backend/prisma/migrations/202609240002_cancel_invoice/migration.sql ]] || fail 'Нет миграции отмены счёта.'
 [[ -f $release/frontend/src/space-layout.css && -f $release/frontend/public/assets/cosmic-field.svg ]] || fail 'Нет адаптивной компоновки или космического фона.'
 [[ -f $release/backend/prisma/migrations/202609240001_ton_usdt_deposits/migration.sql && -f $release/backend/src/deposits/watcher.ts && -f $release/backend/test/ton-payments.test.ts && -f $release/frontend/public/tonconnect-manifest.json && -f $release/frontend/src/WalletView.tsx ]] || fail 'Отсутствует полный модуль USDT TON.'
-[[ -f $release/backend/prisma/migrations/202609250001_ton_proof_wallet_identity/migration.sql && -f $release/backend/src/ton/gasless.ts && -f $release/backend/src/ton/gasless-messages.ts && -f $release/backend/src/deposits/gasless-service.ts && -f $release/backend/test/gasless.test.ts ]] || fail 'Отсутствует TON Proof / gasless этап.'
+[[ -f $release/backend/prisma/migrations/202609250001_ton_proof_wallet_identity/migration.sql && -f $release/backend/prisma/migrations/202609260001_w5_wallet_id/migration.sql && -f $release/backend/src/ton/gasless.ts && -f $release/backend/src/ton/gasless-messages.ts && -f $release/backend/src/deposits/gasless-service.ts && -f $release/backend/test/gasless.test.ts ]] || fail 'Отсутствует TON Proof / gasless этап.'
 printf '%s  %s\n' 'b21177972dbdeedbea731e826b070ff7fb148ec1f96e7892536e67e40732ce88' "$release/frontend/public/documents/public-offer-aethermind.pdf" | sha256sum --check --status || fail 'PDF оферты отличается от утверждённого документа.'
 printf '%s  %s\n' '7678c55b371736e130bc52f5e401d7d9d33288ad6284ae2dcb7097d25ecdeca3' "$release/frontend/public/documents/user-agreement-aethermind.pdf" | sha256sum --check --status || fail 'Пользовательское соглашение повреждено.'
 printf '%s\n' "$sha" > "$release/DEPLOYED_COMMIT"
@@ -195,16 +195,10 @@ case ",$testers," in
 esac
 prior_gasless=$(awk -F= '/^ENABLE_TON_GASLESS=/{value=$2} END{print value}' "$backup/runtime.env")
 prior_canary_only=$(awk -F= '/^TON_GASLESS_SMOKE_OWNER_ONLY=/{value=$2} END{print value}' "$backup/runtime.env")
-if [[ $prior_gasless == true ]]; then
-  grep -Eq '^TONAPI_API_KEY=[A-Za-z0-9_-]{8,200}$' "$backup/runtime.env" || fail 'Previously enabled gasless is missing its TONAPI key.'
-  [[ $prior_canary_only == true || $prior_canary_only == false ]] || fail 'Previously enabled gasless is missing its rollout mode.'
-  gasless_state=true
-  canary_only=$prior_canary_only
-else
-  gasless_state=false
-  canary_only=true
-fi
-printf 'TON_JETTON_ATTACH_GRAM=%s\nTON_JETTON_ATTACH_SMOKE_OWNER_GRAM=%s\nTON_PAYMENT_TEST_TELEGRAM_IDS=%s\nTON_GASLESS_ATTACH_GRAM=0.05\nTONAPI_BASE=https://tonapi.io\nENABLE_TON_GASLESS=%s\nTON_GASLESS_SMOKE_OWNER_ONLY=%s\n' "$public_attach" "$owner_canary" "$testers" "$gasless_state" "$canary_only" >> "$envfile"
+[[ $prior_gasless != true ]] || fail 'Gasless уже включён: после завершения подписанных счетов временно отключите его через ton-promote-vps.sh gasless-off и повторите релиз с новым валидатором.'
+gasless_state=false
+canary_only=true
+printf 'TON_JETTON_ATTACH_GRAM=%s\nTON_JETTON_ATTACH_SMOKE_OWNER_GRAM=%s\nTON_PAYMENT_TEST_TELEGRAM_IDS=%s\nTON_GASLESS_ATTACH_GRAM=0.05\nTON_GASLESS_MAX_FEE_USDT=0.25\nTONAPI_BASE=https://tonapi.io\nENABLE_TON_GASLESS=%s\nTON_GASLESS_SMOKE_OWNER_ONLY=%s\n' "$public_attach" "$owner_canary" "$testers" "$gasless_state" "$canary_only" >> "$envfile"
 chmod 0600 "$envfile"
 
 # runtime.env is deliberately root-only (0600). Load it in a root subshell,
