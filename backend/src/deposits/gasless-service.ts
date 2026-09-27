@@ -6,7 +6,7 @@ import {TonApiGasless} from '../ton/gasless.js';
 import {estimateMessage,validateEstimate,verifiedExternal,type SignRequest} from '../ton/gasless-messages.js';
 import {buildJettonTransfer} from '../ton/jetton.js';
 import {config,center} from './service.js';
-import {usdtString,paymentCanary} from '../ton/config.js';
+import {usdtString,paymentCanary,depositAccessAllows} from '../ton/config.js';
 
 type Saved={id:string;provider:'TONAPI';protocol:string;fee:string;requestedMicros:string;totalMicros:string;relayAddress:string;createdAt:number;expiresAt:number;messageDigest:string;signRequest:SignRequest;externalBoc?:string;signTraceId?:string;relayAttemptAt?:number;relayAttempts?:number;relaySubmittedAt?:number;relayExternalHash?:string};
 const saved=(row:TonDeposit):Saved|null=>{
@@ -23,7 +23,7 @@ const metadata=(gasless:Saved,previous:Prisma.JsonValue)=>({...previous&&typeof 
 export class GaslessDeposits {
  constructor(readonly db:PrismaClient,readonly provider=new TonApiGasless(config),readonly ownerOnly=config.gaslessSmokeOwnerOnly,readonly rolloutConfig=config){}
  async availability(userId:string){
-  if(!this.provider.enabled||this.ownerOnly&&!paymentCanary(this.rolloutConfig,userId))return false;
+  if(!depositAccessAllows(this.rolloutConfig,userId)||!this.provider.enabled||this.ownerOnly&&!paymentCanary(this.rolloutConfig,userId))return false;
   const wallet=await this.db.tonWallet.findUnique({where:{userId}});
   if(!wallet?.verified||wallet.walletVersion!=='W5'||!wallet.publicKey||!wallet.walletId)return false;
   try{return Boolean(await this.provider.relay());}catch{return false;}
@@ -32,7 +32,7 @@ export class GaslessDeposits {
   const row=await this.db.tonDeposit.findUnique({where:{id}});
   if(!row||row.userId!==userId)throw new NotFoundException('Счёт не найден.');
   valid(row,userId);
-  if(!this.provider.enabled||this.ownerOnly&&!paymentCanary(this.rolloutConfig,userId))throw new ServiceUnavailableException('Газлесс временно недоступен. Используйте обычный перевод.');
+  if(!depositAccessAllows(this.rolloutConfig,userId)||!this.provider.enabled||this.ownerOnly&&!paymentCanary(this.rolloutConfig,userId))throw new ServiceUnavailableException('Газлесс временно недоступен. Используйте обычный перевод.');
   const wallet=await this.db.tonWallet.findUnique({where:{userId}});
   if(!wallet?.verified||wallet.walletVersion!=='W5'||!wallet.publicKey||! /^[a-f0-9]{64}$/.test(wallet.publicKey)||!wallet.walletId||! /^\d{1,10}$/.test(wallet.walletId)||BigInt(wallet.walletId)>4294967295n||wallet.address!==row.senderAddress)throw new ForbiddenException('Для газлесс требуется новый TON Proof кошелька W5.');
   return {row,wallet};
@@ -45,13 +45,13 @@ export class GaslessDeposits {
   try{const value=await this.provider.relay();if(!value)throw Error('USDT unsupported');relay=value;}
   catch{throw new ServiceUnavailableException('TONAPI не поддерживает USDT или временно недоступен.');}
   const sender=Address.parse(wallet.address),jetton=await center.jettonWallet(sender);
-  const transfer=buildJettonTransfer({sender,treasury:config.treasury,jettonWallet:jetton,usdtAmount:row.requestedMicros,queryId:row.queryId,invoiceId:row.invoiceId,responseDestination:relay,attachAmount:config.gaslessAttach,expiresAt:row.expiresAt});
+  const transfer=buildJettonTransfer({sender,treasury:config.treasury,jettonWallet:jetton,usdtAmount:row.requestedMicros,queryId:row.queryId,invoiceId:row.invoiceId,responseDestination:relay,attachAmount:config.gaslessAttach,forwardAmount:config.notificationForwardNano,expiresAt:row.expiresAt});
   const body=Cell.fromBase64(transfer.messages[0].payload);
   let estimate;
   try{estimate=await this.provider.estimate(sender,wallet.publicKey!,estimateMessage(jetton,config.gaslessAttach,body));}
   catch{throw new ServiceUnavailableException('Не удалось оценить комиссию в USDT. Проверьте баланс или используйте обычный перевод.');}
   let result;
-  try{result=validateEstimate(estimate,{wallet:sender,jetton,treasury:config.treasury,invoiceId:row.invoiceId,queryId:row.queryId,requested:row.requestedMicros,relay,expiresAt:row.expiresAt,expectedBody:body,economicAttach:config.gaslessAttach,maxFee:config.gaslessMaxFee});}
+  try{result=validateEstimate(estimate,{wallet:sender,jetton,treasury:config.treasury,invoiceId:row.invoiceId,queryId:row.queryId,requested:row.requestedMicros,relay,expiresAt:row.expiresAt,expectedBody:body,economicAttach:config.gaslessAttach,forwardAmount:config.notificationForwardNano,maxFee:config.gaslessMaxFee});}
   catch{throw new ServiceUnavailableException('TONAPI вернул неподходящий перевод. Доступен обычный способ.');}
   const total=row.requestedMicros+result.fee;
   let available:bigint;

@@ -174,26 +174,21 @@ if ! grep -Eq '^TONCENTER_API_KEY=[A-Za-z0-9_-]{8,200}$' "$envfile"; then
   fi
 fi
 env_changed=1
-printf 'TON_NETWORK=mainnet\nTON_CHAIN_ID=-239\nTON_WALLET_VERSION=W5\nAETHERMIND_TREASURY_ADDRESS=UQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH\nUSDT_TON_MASTER=EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs\nTONCENTER_API_BASE=https://toncenter.com/api/v3\nTON_TREASURY_MIN_GRAM=0.02\nENABLE_TON_USDT_DEPOSITS=true\n' >> "$envfile"
-# Keep the public execution reserve unchanged until an actual Mainnet trace
-# proves that the candidate value covers this invoice's forward payload.
-# The server-side owner and explicitly listed test accounts get the smaller
-# candidate only for a smoke payment. They receive no owner panel permissions.
+printf 'TON_NETWORK=mainnet\nTON_CHAIN_ID=-239\nTON_WALLET_VERSION=W5\nAETHERMIND_TREASURY_ADDRESS=UQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH\nUSDT_TON_MASTER=EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs\nTONCENTER_API_BASE=https://toncenter.com/api/v3\nTON_DEPOSIT_ACCESS=disabled\nENABLE_TON_USDT_DEPOSITS=false\n' >> "$envfile"
+# Safely pause invoices on every payment-code deploy. Keep already reviewed
+# server values on later releases; this incident starts at 0.1 / 0.02.
+previous_forward=$(awk -F= '/^TON_NOTIFICATION_FORWARD_GRAM=/{value=$2} END{print value}' "$backup/runtime.env")
+notification_forward=${previous_forward:-0.02}
 public_attach=$(awk -F= '/^TON_JETTON_ATTACH_GRAM=/{value=$2} END{print value}' "$backup/runtime.env")
+[[ -n $previous_forward ]] || public_attach='0.1'
 [[ -n $public_attach ]] || public_attach='0.1'
-[[ $public_attach == 0.1 || $public_attach == 0.05 ]] || fail 'Неизвестное значение публичного TON attach.'
-owner_canary='0.05'
-[[ $public_attach == 0.1 ]] || owner_canary=''
-# A later deployment must never silently undo a separately audited Mainnet promotion.
+gasless_attach=$(awk -F= '/^TON_GASLESS_ATTACH_GRAM=/{value=$2} END{print value}' "$backup/runtime.env")
+[[ -n $previous_forward && -n $gasless_attach ]] || gasless_attach='0.1'
 if grep -q '^TON_PAYMENT_TEST_TELEGRAM_IDS=' "$backup/runtime.env"; then
   testers=$(awk -F= '/^TON_PAYMENT_TEST_TELEGRAM_IDS=/{value=$2} END{print value}' "$backup/runtime.env")
 else
   testers=''
 fi
-case ",$testers," in
-  *,6662169510,*) ;;
-  *) testers="${testers:+$testers,}6662169510" ;;
-esac
 prior_gasless=$(awk -F= '/^ENABLE_TON_GASLESS=/{value=$2} END{print value}' "$backup/runtime.env")
 prior_canary_only=$(awk -F= '/^TON_GASLESS_SMOKE_OWNER_ONLY=/{value=$2} END{print value}' "$backup/runtime.env")
 [[ $prior_gasless != true ]] || fail 'Gasless уже включён: после завершения подписанных счетов временно отключите его через ton-promote-vps.sh gasless-off и повторите релиз с новым валидатором.'
@@ -202,7 +197,7 @@ canary_only=true
 prior_fee=$(awk -F= '/^TON_GASLESS_MAX_FEE_USDT=/{value=$2} END{print value}' "$backup/runtime.env")
 [[ -n $prior_fee ]] || prior_fee='0.25'
 [[ $prior_fee =~ ^(0|[1-9][0-9]{0,8})(\.[0-9]{1,6})?$ ]] || fail 'Некорректный лимит комиссии TONAPI.'
-printf 'TON_JETTON_ATTACH_GRAM=%s\nTON_JETTON_ATTACH_SMOKE_OWNER_GRAM=%s\nTON_PAYMENT_TEST_TELEGRAM_IDS=%s\nTON_GASLESS_ATTACH_GRAM=0.05\nTON_GASLESS_MAX_FEE_USDT=%s\nTONAPI_BASE=https://tonapi.io\nENABLE_TON_GASLESS=%s\nTON_GASLESS_SMOKE_OWNER_ONLY=%s\n' "$public_attach" "$owner_canary" "$testers" "$prior_fee" "$gasless_state" "$canary_only" >> "$envfile"
+printf 'TON_JETTON_ATTACH_GRAM=%s\nTON_NOTIFICATION_FORWARD_GRAM=%s\nTON_JETTON_ATTACH_SMOKE_OWNER_GRAM=\nTON_PAYMENT_TEST_TELEGRAM_IDS=%s\nTON_GASLESS_ATTACH_GRAM=%s\nTON_GASLESS_MAX_FEE_USDT=%s\nTONAPI_BASE=https://tonapi.io\nENABLE_TON_GASLESS=%s\nTON_GASLESS_SMOKE_OWNER_ONLY=%s\n' "$public_attach" "$notification_forward" "$testers" "$gasless_attach" "$prior_fee" "$gasless_state" "$canary_only" >> "$envfile"
 chmod 0600 "$envfile"
 
 # runtime.env is deliberately root-only (0600). Load it in a root subshell,
@@ -221,7 +216,7 @@ run_with_runtime_env(){
 run_with_runtime_env bash -c '
   set -Eeuo pipefail
   cd "$1/backend"
-      node --input-type=module -e '\''import("./dist/deposits/service.js").then(async m=>{const c=m.config;const {attachForUser}=await import("./dist/ton/config.js");const expected=BigInt(process.env.TON_JETTON_ATTACH_GRAM==="0.05"?50000000:100000000);if(c.attachAmount!==expected||attachForUser(c,process.env.OWNER_TELEGRAM_ID)!==50000000n||!c.paymentTestIds.includes("6662169510")||c.paymentTestIds.some(id=>attachForUser(c,id)!==50000000n)||attachForUser(c,"non-tester")!==expected||c.gaslessEnabled!==(process.env.ENABLE_TON_GASLESS==="true"))throw Error("Unsafe attach/gasless configuration");process.stdout.write("TON canary configuration confirmed\\n")})'\''
+      node --input-type=module -e '\''import("./dist/deposits/service.js").then(async m=>{const c=m.config;const {depositAccessAllows}=await import("./dist/ton/config.js");if(c.access!=="disabled"||depositAccessAllows(c,process.env.OWNER_TELEGRAM_ID)||c.notificationForwardNano<=1n||c.attachAmount<c.notificationForwardNano+20000000n||c.gaslessAttach<c.notificationForwardNano+20000000n||c.gaslessEnabled)throw Error("Unsafe deposit configuration");process.stdout.write("Deposits paused; notification funding configured\\n")})'\''
 ' _ "$release"
 
 # TON Connect wallets resolve bridges and wallet icons on their own HTTPS hosts.
@@ -263,9 +258,9 @@ if grep -Eq '^TONCENTER_API_KEY=[A-Za-z0-9_-]{8,200}$' "$envfile"; then
     ' _ "$release"; then getter_ok=1; break; fi
     sleep 5
   done
-  ((getter_ok)) || fail 'TON Center не подтвердил USDT Jetton Wallet treasury; публичный доступ остался закрыт.'
+  ((getter_ok)) || fail 'TON Center не подтвердил USDT Jetton Wallet treasury; депозиты остались закрыты.'
 else
-  fail 'Публичный запуск невозможен: TON Center API key отсутствует в runtime.env.'
+  fail 'TON Center API key отсутствует в runtime.env.'
 fi
 
 note 'Переключаю релиз и проверяю HTTPS.'
@@ -352,7 +347,7 @@ assert market['version'] == 'offer-88-2026-ai' and market['purchasesEnabled'] is
 assert market['nodes'][0]['dailyUsdt'] == '0.750000'
 assert market['nodes'][3]['dailyUsdt'] is None
 assert offer['version'] == '88-2026-AI-2026-09-21'
-assert offer['paymentsEnabled'] is True and offer['accrualEnabled'] is False
+assert offer['paymentsEnabled'] is False and offer['accrualEnabled'] is False
 manifest = json.loads((root / 'tonconnect-manifest.json').read_text())
 assert manifest['url'] == 'https://31.77.226.26' and manifest['iconUrl'].endswith('/assets/icons/icon-180.png')
 assert (root / 'tonconnect-icon.png').read_bytes().startswith(b'\x89PNG')
@@ -396,4 +391,4 @@ PY
 python3 "$release/ops/bot-config.py"
 
 trap - ERR INT TERM
-printf '\nГОТОВО: https://31.77.226.26/\nUSDT TON: публичный attach %s GRAM; gasless выключен до отдельного smoke.\nКоммит: %s\nБэкап: %s\nВывод через поддержку; заказы за баланс выключены. Откройте Mini App заново.\n' "$public_attach" "$sha" "$backup"
+printf '\nГОТОВО: https://31.77.226.26/\nНовые депозиты ВЫКЛЮЧЕНЫ. Настроено уведомление %s GRAM и attach %s GRAM; gasless выключен.\nКоммит: %s\nБэкап: %s\nВключите canary отдельно после деплоя; затем проверьте реальный автоматический платёж.\n' "$notification_forward" "$public_attach" "$sha" "$backup"

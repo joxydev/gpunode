@@ -7,7 +7,7 @@ test('treasury owner reserve gates invoice creation and fails closed on RPC erro
  const original=center.treasuryBalance;
  try{
   center.treasuryBalance=async()=>toNano('0.000196492');
-  assert.equal(await treasuryReady(true),false,'1-nanogram notifications would abort on an empty owner wallet');
+  assert.equal(await treasuryReady(true),false,'owner reserve is an operational gate, independent of notification funding');
   center.treasuryBalance=async()=>toNano('0.03');
   assert.equal(await treasuryReady(true),true);
   center.treasuryBalance=async()=>{throw Error('indexer timeout')};

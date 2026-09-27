@@ -14,12 +14,12 @@ const cfg=tonConfig({PUBLIC_URL:'https://31.77.226.26',TONCENTER_API_KEY:'exampl
 const keys=keyPairFromSeed(Buffer.alloc(32,7)),walletContract=WalletContractV5R1.create({workchain:0,publicKey:keys.publicKey});
 const wallet=walletContract.address,jetton=Address.parse('0:'+'2'.repeat(64)),relay=Address.parse('0:'+'3'.repeat(64)),invoiceId='dep_'+'a'.repeat(32),queryId='12345',expiresAt=new Date(Date.now()+600000);
 const idReader=walletContract.init.data.beginParse();idReader.loadBit();idReader.loadUint(32);const walletId=idReader.loadUint(32).toString();
-const transfer=buildJettonTransfer({sender:wallet,treasury:cfg.treasury,jettonWallet:jetton,usdtAmount:10000000n,queryId,invoiceId,responseDestination:relay,attachAmount:cfg.gaslessAttach,expiresAt});
+const transfer=buildJettonTransfer({sender:wallet,treasury:cfg.treasury,jettonWallet:jetton,usdtAmount:10000000n,queryId,invoiceId,responseDestination:relay,attachAmount:cfg.gaslessAttach,forwardAmount:cfg.notificationForwardNano,expiresAt});
 const body=Cell.fromBase64(transfer.messages[0].payload);
 const feeBody=beginCell().storeUint(0x0f8a7ea5,32).storeUint(9,64).storeCoins(100000n).storeAddress(relay).storeAddress(relay).storeBit(0).storeCoins(0).storeBit(0).endCell();
-const toRaw=(cell:Cell):RelayMessage=>({address:jetton.toRawString(),amount:toNano('0.05').toString(),payload:cell.toBoc().toString('hex')});
+const toRaw=(cell:Cell):RelayMessage=>({address:jetton.toRawString(),amount:cfg.gaslessAttach.toString(),payload:cell.toBoc().toString('hex')});
 const estimate={relayAddress:relay,from:wallet,commission:'100000',validUntil:Math.floor(Date.now()/1000)+240,protocolName:'gasless',messages:[toRaw(feeBody),toRaw(body)]};
-const expected={wallet,jetton,treasury:cfg.treasury,invoiceId,queryId,requested:10000000n,relay,expiresAt,expectedBody:body,economicAttach:cfg.gaslessAttach,maxFee:cfg.gaslessMaxFee};
+const expected={wallet,jetton,treasury:cfg.treasury,invoiceId,queryId,requested:10000000n,relay,expiresAt,expectedBody:body,economicAttach:cfg.gaslessAttach,forwardAmount:cfg.notificationForwardNano,maxFee:cfg.gaslessMaxFee};
 
 test('gasless canary admits only the owner and explicitly listed Telegram ID, without changing public availability',async()=>{
  const canaryConfig=tonConfig({PUBLIC_URL:'https://31.77.226.26',TONCENTER_API_KEY:'test',ENABLE_TON_USDT_DEPOSITS:'true',ENABLE_TON_GASLESS:'true',TONAPI_API_KEY:'fake-test-key',OWNER_TELEGRAM_ID:'123',TON_PAYMENT_TEST_TELEGRAM_IDS:'6662169510'});
@@ -73,7 +73,7 @@ test('gasless estimate preserves economic transfer and rejects mutations, fake f
  assert.equal(fee,100000n);assert.equal(signRequest.network,'-239');assert.equal(signRequest.messages.length,2);
  const economic=Cell.fromBase64(signRequest.messages[1].payload).beginParse();
  assert.equal(economic.loadUint(32),0x0f8a7ea5);assert.equal(economic.loadUintBig(64),BigInt(queryId));assert.equal(economic.loadCoins(),10000000n);
- assert.ok(economic.loadAddress()?.equals(cfg.treasury));assert.ok(economic.loadAddress()?.equals(relay));economic.loadBit();assert.equal(economic.loadCoins(),1n);
+ assert.ok(economic.loadAddress()?.equals(cfg.treasury));assert.ok(economic.loadAddress()?.equals(relay));economic.loadBit();assert.equal(economic.loadCoins(),cfg.notificationForwardNano);
  assert.equal(economic.loadBit(),true);const comment=economic.loadRef().beginParse();comment.loadUint(32);assert.equal(comment.loadStringTail(),'AETHERMIND:'+invoiceId);
  assert.throws(()=>validateEstimate({...estimate,messages:[...estimate.messages,toRaw(body)]},expected));
  assert.throws(()=>validateEstimate({...estimate,commission:'200000'},expected));
@@ -85,13 +85,14 @@ test('gasless estimate preserves economic transfer and rejects mutations, fake f
  assert.throws(()=>validateEstimate({...estimate,messages:[{...toRaw(feeBody),stateInit:'unexpected'},toRaw(body)]},expected));
  assert.throws(()=>validateEstimate({...estimate,messages:[{...toRaw(feeBody),amount:'300000000'},toRaw(body)]},expected));
  assert.throws(()=>validateEstimate({...estimate,messages:[toRaw(feeBody),{...toRaw(body),amount:'50000001'}]},expected));
+ assert.throws(()=>validateEstimate(estimate,{...expected,forwardAmount:1n}));
  const rogueFee=beginCell().storeUint(0x0f8a7ea5,32).storeUint(9,64).storeCoins(100000n).storeAddress(relay).storeAddress(relay).storeBit(0).storeCoins(0).storeBit(1).storeRef(beginCell().storeUint(0x12345678,32).endCell()).endCell();
  assert.throws(()=>validateEstimate({...estimate,messages:[toRaw(rogueFee),toRaw(body)]},expected));
  const markerFee=beginCell().storeUint(0x0f8a7ea5,32).storeUint(9,64).storeCoins(100000n).storeAddress(relay).storeAddress(relay).storeBit(0).storeCoins(0).storeBit(1).storeRef(beginCell().storeUint(0x878da6e3,32).endCell()).endCell();
  assert.equal(validateEstimate({...estimate,messages:[toRaw(markerFee),toRaw(body)]},expected).fee,100000n);
  const feeForward=beginCell().storeUint(0x0f8a7ea5,32).storeUint(9,64).storeCoins(100000n).storeAddress(relay).storeAddress(relay).storeBit(0).storeCoins(2n).storeBit(0).endCell();
  assert.throws(()=>validateEstimate({...estimate,messages:[toRaw(feeForward),toRaw(body)]},expected));
- const otherInvoice=buildJettonTransfer({sender:wallet,treasury:cfg.treasury,jettonWallet:jetton,usdtAmount:10000000n,queryId,invoiceId:'dep_'+'b'.repeat(32),responseDestination:relay,attachAmount:cfg.gaslessAttach,expiresAt});
+ const otherInvoice=buildJettonTransfer({sender:wallet,treasury:cfg.treasury,jettonWallet:jetton,usdtAmount:10000000n,queryId,invoiceId:'dep_'+'b'.repeat(32),responseDestination:relay,attachAmount:cfg.gaslessAttach,forwardAmount:cfg.notificationForwardNano,expiresAt});
  assert.throws(()=>validateEstimate({...estimate,messages:[toRaw(feeBody),toRaw(Cell.fromBase64(otherInvoice.messages[0].payload))]},expected));
 });
 
@@ -122,9 +123,9 @@ test('W5 signed internal BoC is verified against exact estimated messages before
 });
 
 test('structured TON Connect item contains same invoice and amount, without guessed attach',()=>{
- const structured=buildStructuredJettonTransfer({sender:wallet,treasury:cfg.treasury,master:cfg.master,usdtAmount:10000000n,queryId,invoiceId,expiresAt});
+ const structured=buildStructuredJettonTransfer({sender:wallet,treasury:cfg.treasury,master:cfg.master,usdtAmount:10000000n,queryId,invoiceId,forwardAmount:cfg.notificationForwardNano,expiresAt});
  const item=structured.items[0];
- assert.equal(item.type,'jetton');assert.equal(item.amount,'10000000');assert.equal(item.queryId,queryId);assert.equal(item.forwardAmount,'1');
+ assert.equal(item.type,'jetton');assert.equal(item.amount,'10000000');assert.equal(item.queryId,queryId);assert.equal(item.forwardAmount,cfg.notificationForwardNano.toString());
  assert.equal('attachAmount' in item,false);assert.ok(Address.parse(item.master).equals(cfg.master));
  const comment=Cell.fromBase64(item.forwardPayload).beginParse();assert.equal(comment.loadUint(32),0);assert.equal(comment.loadStringTail(),'AETHERMIND:'+invoiceId);
 });
@@ -137,7 +138,7 @@ test('gasless estimate checks full USDT balance, stores exact quote once and nev
  const mock={enabled:true,relay:async()=>relay,estimate:async()=>{estimates++;return estimate},usdtBalance:async()=>balance};
  const original=center.jettonWallet;center.jettonWallet=async()=>jetton;
  try{
-  const service=new GaslessDeposits(db,mock as unknown as TonApiGasless,false);
+  const service=new GaslessDeposits(db,mock as unknown as TonApiGasless,false,cfg);
   await assert.rejects(service.estimate('foreign',row.id));
   await assert.rejects(service.estimate('user',row.id),/Недостаточно USDT/);
   assert.equal(updates,0);assert.equal(credits,0);
@@ -163,7 +164,7 @@ test('gasless send rejects foreign, cancelled, expired, invalid estimate; retry 
  const provider={enabled:true,send:async(_key:string,boc:string)=>{attempts.push(boc);if(attempts.length===1)throw Error('relayer timeout');return {external:'provider-hash',protocolName:'gasless'};}};
  const tx={ $queryRaw:async()=>[],tonDeposit:{findUniqueOrThrow:async()=>row,update:async({data}:{data:{metadata:any}})=>{row={...row,metadata:data.metadata};updates++;return row;}}};
  const db={tonDeposit:{findUnique:async()=>row},tonWallet:{findUnique:async()=>({verified:true,walletVersion:'W5',walletId,publicKey:keys.publicKey.toString('hex'),address:wallet.toRawString()})},$transaction:async(fn:(tx:typeof tx)=>Promise<any>)=>fn(tx),walletLedger:{create:async()=>{ledgerCreates++}}} as unknown as PrismaClient;
- const service=new GaslessDeposits(db,provider as unknown as TonApiGasless,false);
+ const service=new GaslessDeposits(db,provider as unknown as TonApiGasless,false,cfg);
  await assert.rejects(service.send('other',base.id,{estimateId:'e'.repeat(32),internalBoc}));
  row={...base,status:'CANCELLED'};await assert.rejects(service.send('user',base.id,{estimateId:'e'.repeat(32),internalBoc}));
  row={...base,expiresAt:new Date(Date.now()-1)};await assert.rejects(service.send('user',base.id,{estimateId:'e'.repeat(32),internalBoc}));

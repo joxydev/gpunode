@@ -21,7 +21,7 @@ function jettonTransfer(body:Cell){
  if(s.remainingBits||s.remainingRefs)throw Error('Unexpected Jetton suffix');
  return {queryId,amount,destination,response,forward,comment};
 }
-export function validateEstimate(estimate:RelayEstimate,expected:{wallet:Address;jetton:Address;treasury:Address;invoiceId:string;queryId:string;requested:bigint;relay:Address;expiresAt:Date;expectedBody:Cell;economicAttach:bigint;maxFee:bigint}):{fee:bigint;signRequest:SignRequest}{
+export function validateEstimate(estimate:RelayEstimate,expected:{wallet:Address;jetton:Address;treasury:Address;invoiceId:string;queryId:string;requested:bigint;relay:Address;expiresAt:Date;expectedBody:Cell;economicAttach:bigint;forwardAmount:bigint;maxFee:bigint}):{fee:bigint;signRequest:SignRequest}{
  // Invoice comments can select TONAPI's generic-transfer protocol.
  if(!['gasless','gasless-generic-transfer'].includes(estimate.protocolName))throw Error('Unknown relayer protocol');
  if(!estimate.relayAddress.equals(expected.relay)||!estimate.from.equals(expected.wallet))throw Error('Provider changed wallet or relay');
@@ -43,7 +43,7 @@ export function validateEstimate(estimate:RelayEstimate,expected:{wallet:Address
  const feePayload=feeMessage.parsed.comment.beginParse();
  if(feePayload.remainingRefs||!(feePayload.remainingBits===0||feePayload.remainingBits===32&&feePayload.loadUint(32)===0x878da6e3))throw Error('Unknown relayer fee payload');
  // Fee is a separate official USDT transfer. The treasury transfer has the exact invoice amount.
- if(economic[0].parsed.forward!==1n||economic[0].parsed.amount!==expected.requested||economic[0].parsed.queryId!==expected.queryId||!economic[0].parsed.destination.equals(expected.treasury))throw Error('Changed economic transfer');
+ if(economic[0].parsed.forward!==expected.forwardAmount||economic[0].parsed.amount!==expected.requested||economic[0].parsed.queryId!==expected.queryId||!economic[0].parsed.destination.equals(expected.treasury))throw Error('Changed economic transfer');
  return {fee,signRequest:{network:'-239',from:expected.wallet.toString({bounceable:false}),validUntil:estimate.validUntil,messages:signMessages.map(({raw,body})=>({address:expected.jetton.toString({bounceable:false}),amount:raw.amount,payload:body.toBoc().toString('base64')}))}};
 }
 

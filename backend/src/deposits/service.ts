@@ -2,7 +2,7 @@ import {randomBytes,createHash} from 'node:crypto';
 import {BadRequestException,ForbiddenException,NotFoundException,ServiceUnavailableException} from '@nestjs/common';
 import type {PrismaClient,TonDeposit} from '@prisma/client';
 import {Address} from '@ton/ton';
-import {tonConfig,usdtString,usdtUnits,friendly,attachForUser,structuredForUser,paymentCanary} from '../ton/config.js';
+import {tonConfig,usdtString,usdtUnits,friendly,attachForUser,structuredForUser,paymentCanary,depositAccessAllows} from '../ton/config.js';
 import {TonCenter} from '../ton/center.js';
 import {buildJettonTransfer,buildStructuredJettonTransfer} from '../ton/jetton.js';
 import {verifyTonProof,type ProofInput} from '../ton/proof.js';
@@ -27,7 +27,7 @@ export function safeDeposit(row:TonDeposit){const meta=row.metadata,gasless=meta
 
 export class DepositsService {
  constructor(readonly db:PrismaClient){}
- allowed(_userId:string){return config.enabled;}
+ allowed(userId:string){return depositAccessAllows(config,userId);}
  async challenge(userId:string){
   const window=new Date(Date.now()-600000);
   if(await this.db.tonProofChallenge.count({where:{userId,createdAt:{gte:window}}})>=5)throw new BadRequestException('Слишком много подключений кошелька. Повторите позже.');
@@ -54,7 +54,7 @@ export class DepositsService {
    this.db.tonWallet.findUnique({where:{userId}}),this.db.ledgerEntry.aggregate({where:{userId},_sum:{amountMicros:true}}),
    this.db.tonDeposit.count({where:{userId,status:{in:['PENDING','DETECTED','CONFIRMED']}}})
   ]);
-  return {asset:'USDT',network:'TON',balance:usdtString(balance._sum.amountMicros||0n),connectedWallet:wallet?.verified?friendly(wallet.address):null,rawAddress:wallet?.verified?wallet.address:null,verified:Boolean(wallet?.verified),paymentCanary:paymentCanary(config,userId),depositsEnabled:this.allowed(userId)&&Boolean(config.apiKey)&&await treasuryReady(),publicDepositsEnabled:config.enabled,minAmount:usdtString(config.min),maxAmount:usdtString(config.max),pending};
+  return {asset:'USDT',network:'TON',balance:usdtString(balance._sum.amountMicros||0n),connectedWallet:wallet?.verified?friendly(wallet.address):null,rawAddress:wallet?.verified?wallet.address:null,verified:Boolean(wallet?.verified),walletVersion:wallet?.verified?wallet.walletVersion:null,paymentCanary:paymentCanary(config,userId),depositsEnabled:this.allowed(userId)&&Boolean(config.apiKey)&&await treasuryReady(),publicDepositsEnabled:config.access==='public',minAmount:usdtString(config.min),maxAmount:usdtString(config.max),pending};
  }
  async create(userId:string,body:Record<string,unknown>){
   if(!this.allowed(userId))throw new ServiceUnavailableException('Пополнение временно недоступно.');
@@ -80,9 +80,9 @@ export class DepositsService {
    const hour=new Date(Date.now()-3600000);
    if(await tx.tonDeposit.count({where:{userId,createdAt:{gte:hour}}})>=5)throw new BadRequestException('Слишком много счетов за час.');
    if(await tx.tonDeposit.count({where:{userId,status:'PENDING',expiresAt:{gt:new Date()}}})>=1)throw new BadRequestException('Сначала завершите или отмените предыдущий счёт.');
-   return tx.tonDeposit.create({data:{invoiceId,userId,network:'TON',asset:'USDT',senderAddress:sender.toRawString(),recipientAddress:config.treasury.toRawString(),jettonMaster:config.master.toRawString(),requestedMicros:amount,expiresAt:new Date(Date.now()+maxAge),queryId,metadata:{standardAttachNano:attachForUser(config,userId).toString()}}});
+   return tx.tonDeposit.create({data:{invoiceId,userId,network:'TON',asset:'USDT',senderAddress:sender.toRawString(),recipientAddress:config.treasury.toRawString(),jettonMaster:config.master.toRawString(),requestedMicros:amount,expiresAt:new Date(Date.now()+maxAge),queryId,metadata:{standardAttachNano:attachForUser(config,userId).toString(),notificationForwardNano:config.notificationForwardNano.toString()}}});
   });
-  return {deposit:safeDeposit(row),transaction:buildJettonTransfer({sender,treasury:config.treasury,jettonWallet:senderJetton,usdtAmount:amount,queryId,invoiceId,responseDestination:sender,attachAmount:attachForUser(config,userId),expiresAt:row.expiresAt}),structuredTransaction:structuredForUser(config,userId)?buildStructuredJettonTransfer({sender,treasury:config.treasury,master:config.master,usdtAmount:amount,queryId,invoiceId,expiresAt:row.expiresAt}):null};
+  return {deposit:safeDeposit(row),transaction:buildJettonTransfer({sender,treasury:config.treasury,jettonWallet:senderJetton,usdtAmount:amount,queryId,invoiceId,responseDestination:sender,attachAmount:attachForUser(config,userId),forwardAmount:config.notificationForwardNano,expiresAt:row.expiresAt}),structuredTransaction:structuredForUser(config,userId)?buildStructuredJettonTransfer({sender,treasury:config.treasury,master:config.master,usdtAmount:amount,queryId,invoiceId,forwardAmount:config.notificationForwardNano,expiresAt:row.expiresAt}):null};
  }
  async cancel(userId:string,id:string){
   return this.db.$transaction(async tx=>{
