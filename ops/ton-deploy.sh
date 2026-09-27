@@ -173,17 +173,22 @@ if ! grep -Eq '^TONCENTER_API_KEY=[A-Za-z0-9_-]{8,200}$' "$envfile"; then
     unset ton_key
   fi
 fi
+prior_access=$(awk -F= '/^TON_DEPOSIT_ACCESS=/{value=$2} END{print value}' "$backup/runtime.env")
+[[ $prior_access == disabled || $prior_access == canary || $prior_access == public ]] || fail 'Текущий режим депозитов неизвестен; не меняю доступ при gasless-релизе.'
+legacy_deposits=false
+[[ $prior_access == disabled ]] || legacy_deposits=true
 env_changed=1
-printf 'TON_NETWORK=mainnet\nTON_CHAIN_ID=-239\nTON_WALLET_VERSION=W5\nAETHERMIND_TREASURY_ADDRESS=UQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH\nUSDT_TON_MASTER=EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs\nTONCENTER_API_BASE=https://toncenter.com/api/v3\nTON_DEPOSIT_ACCESS=disabled\nENABLE_TON_USDT_DEPOSITS=false\n' >> "$envfile"
-# Safely pause invoices on every payment-code deploy. Keep already reviewed
-# server values on later releases; this incident starts at 0.1 / 0.02.
+printf 'TON_NETWORK=mainnet\nTON_CHAIN_ID=-239\nTON_WALLET_VERSION=W5\nAETHERMIND_TREASURY_ADDRESS=UQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH\nUSDT_TON_MASTER=EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs\nTONCENTER_API_BASE=https://toncenter.com/api/v3\nTON_DEPOSIT_ACCESS=%s\nENABLE_TON_USDT_DEPOSITS=%s\n' "$prior_access" "$legacy_deposits" >> "$envfile"
+# The standard path has already passed its Mainnet canary. Preserve its exact
+# access mode and execution values while keeping gasless disabled for a new canary.
 previous_forward=$(awk -F= '/^TON_NOTIFICATION_FORWARD_GRAM=/{value=$2} END{print value}' "$backup/runtime.env")
-notification_forward=${previous_forward:-0.02}
+[[ -n $previous_forward ]] || fail 'Текущее финансирование уведомлений отсутствует.'
+notification_forward=$previous_forward
 public_attach=$(awk -F= '/^TON_JETTON_ATTACH_GRAM=/{value=$2} END{print value}' "$backup/runtime.env")
-[[ -n $previous_forward ]] || public_attach='0.1'
-[[ -n $public_attach ]] || public_attach='0.1'
+[[ -n $public_attach ]] || fail 'Текущий attach обычного перевода отсутствует.'
+owner_smoke_attach=$(awk -F= '/^TON_JETTON_ATTACH_SMOKE_OWNER_GRAM=/{value=$2} END{print value}' "$backup/runtime.env")
 gasless_attach=$(awk -F= '/^TON_GASLESS_ATTACH_GRAM=/{value=$2} END{print value}' "$backup/runtime.env")
-[[ -n $previous_forward && -n $gasless_attach ]] || gasless_attach='0.1'
+[[ -n $gasless_attach ]] || gasless_attach='0.1'
 if grep -q '^TON_PAYMENT_TEST_TELEGRAM_IDS=' "$backup/runtime.env"; then
   testers=$(awk -F= '/^TON_PAYMENT_TEST_TELEGRAM_IDS=/{value=$2} END{print value}' "$backup/runtime.env")
 else
@@ -197,8 +202,9 @@ canary_only=true
 prior_fee=$(awk -F= '/^TON_GASLESS_MAX_FEE_USDT=/{value=$2} END{print value}' "$backup/runtime.env")
 [[ -n $prior_fee ]] || prior_fee='0.25'
 [[ $prior_fee =~ ^(0|[1-9][0-9]{0,8})(\.[0-9]{1,6})?$ ]] || fail 'Некорректный лимит комиссии TONAPI.'
-printf 'TON_JETTON_ATTACH_GRAM=%s\nTON_NOTIFICATION_FORWARD_GRAM=%s\nTON_JETTON_ATTACH_SMOKE_OWNER_GRAM=\nTON_PAYMENT_TEST_TELEGRAM_IDS=%s\nTON_GASLESS_ATTACH_GRAM=%s\nTON_GASLESS_MAX_FEE_USDT=%s\nTONAPI_BASE=https://tonapi.io\nENABLE_TON_GASLESS=%s\nTON_GASLESS_SMOKE_OWNER_ONLY=%s\n' "$public_attach" "$notification_forward" "$testers" "$gasless_attach" "$prior_fee" "$gasless_state" "$canary_only" >> "$envfile"
+printf 'TON_JETTON_ATTACH_GRAM=%s\nTON_NOTIFICATION_FORWARD_GRAM=%s\nTON_JETTON_ATTACH_SMOKE_OWNER_GRAM=%s\nTON_PAYMENT_TEST_TELEGRAM_IDS=%s\nTON_GASLESS_ATTACH_GRAM=%s\nTON_GASLESS_MAX_FEE_USDT=%s\nTONAPI_BASE=https://tonapi.io\nENABLE_TON_GASLESS=%s\nTON_GASLESS_SMOKE_OWNER_ONLY=%s\n' "$public_attach" "$notification_forward" "$owner_smoke_attach" "$testers" "$gasless_attach" "$prior_fee" "$gasless_state" "$canary_only" >> "$envfile"
 chmod 0600 "$envfile"
+export AETHER_EXPECTED_DEPOSIT_ACCESS="$prior_access"
 
 # runtime.env is deliberately root-only (0600). Load it in a root subshell,
 # then pass the exported variables to the unprivileged deploy process. Neither
@@ -216,7 +222,7 @@ run_with_runtime_env(){
 run_with_runtime_env bash -c '
   set -Eeuo pipefail
   cd "$1/backend"
-      node --input-type=module -e '\''import("./dist/deposits/service.js").then(async m=>{const c=m.config;const {depositAccessAllows}=await import("./dist/ton/config.js");if(c.access!=="disabled"||depositAccessAllows(c,process.env.OWNER_TELEGRAM_ID)||c.notificationForwardNano<=1n||c.attachAmount<c.notificationForwardNano+20000000n||c.gaslessAttach<c.notificationForwardNano+20000000n||c.gaslessEnabled)throw Error("Unsafe deposit configuration");process.stdout.write("Deposits paused; notification funding configured\\n")})'\''
+      node --input-type=module -e '\''import("./dist/deposits/service.js").then(async m=>{const c=m.config;if(c.access!==process.env.AETHER_EXPECTED_DEPOSIT_ACCESS||c.notificationForwardNano<=1n||c.attachAmount<c.notificationForwardNano+20000000n||c.gaslessAttach<c.notificationForwardNano+20000000n||c.gaslessEnabled)throw Error("Unsafe deposit configuration");process.stdout.write("Standard deposit access preserved; gasless disabled\\n")})'\''
 ' _ "$release"
 
 # TON Connect wallets resolve bridges and wallet icons on their own HTTPS hosts.
@@ -391,4 +397,4 @@ PY
 python3 "$release/ops/bot-config.py"
 
 trap - ERR INT TERM
-printf '\nГОТОВО: https://31.77.226.26/\nНовые депозиты ВЫКЛЮЧЕНЫ. Настроено уведомление %s GRAM и attach %s GRAM; gasless выключен.\nКоммит: %s\nБэкап: %s\nВключите canary отдельно после деплоя; затем проверьте реальный автоматический платёж.\n' "$notification_forward" "$public_attach" "$sha" "$backup"
+printf '\nГОТОВО: https://31.77.226.26/\nОбычные депозиты сохранили прежний режим: %s. Уведомление %s GRAM, attach %s GRAM. Gasless выключен до отдельного canary.\nКоммит: %s\nБэкап: %s\n' "$prior_access" "$notification_forward" "$public_attach" "$sha" "$backup"

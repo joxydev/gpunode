@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Promote a tested USDT TON payment path. The deploy itself always pauses new invoices.
+# Promote a tested USDT TON payment path. A gasless release preserves standard access.
 set -Eeuo pipefail
 umask 077
 [[ $EUID -eq 0 ]] || { echo 'Run with sudo on VPS.' >&2; exit 1; }

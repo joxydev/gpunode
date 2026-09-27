@@ -4,6 +4,7 @@ import {Address} from '@ton/ton';
 import {TonCenter} from '../backend/dist/ton/center.js';
 import {tonConfig} from '../backend/dist/ton/config.js';
 import {parseNotification} from '../backend/dist/ton/notification.js';
+import {matchesGaslessFee} from '../backend/dist/ton/gasless-fee.js';
 
 const [mode,invoiceId,txHash]=process.argv.slice(2);
 if(!['standard','gasless'].includes(mode)||!/^dep_[a-f0-9]{32}$/.test(invoiceId||'')||! /^[a-f0-9]{64}$/.test(txHash||''))throw Error('Expected mode, invoice ID and transaction hash');
@@ -45,5 +46,28 @@ try{
   if(transfer||batch.length<100)break;
  }
  if(!transfer||transfer.transaction_aborted!==false||transfer.forward_ton_amount!==expectedForward||String(transfer.amount)!==d.amount||!Address.parse(transfer.source).equals(Address.parse(d.sender_address))||!Address.parse(transfer.destination).equals(config.treasury)||!Address.parse(transfer.jetton_master).equals(config.master))throw Error('Indexed Jetton transfer or notification funding not verified');
+ if(mode==='gasless'){
+  const quote=d.metadata.gasless,fee=BigInt(quote.fee),sender=Address.parse(d.sender_address);
+  if(fee<=0n||fee>config.gaslessMaxFee)throw Error('Gasless relayer fee exceeds the active limit');
+  const relay=Address.parse(quote.relayAddress),senderJettonWallet=await center.jettonWallet(sender);
+  const url=new URL(config.apiBase+'/jetton/transfers');
+  url.searchParams.set('owner_address',sender.toRawString());
+  url.searchParams.set('jetton_master',config.master.toRawString());
+  url.searchParams.set('direction','out');
+  url.searchParams.set('start_utime',String(from));
+  url.searchParams.set('sort','asc');
+  url.searchParams.set('limit','100');
+  let matches=0;
+  for(let offset=0;offset<1000;offset+=100){
+   url.searchParams.set('offset',String(offset));
+   const response=await fetch(url,{headers:config.apiKey?{'X-API-Key':config.apiKey}:{},signal:AbortSignal.timeout(12000)});
+   if(!response.ok)throw Error('TON Center fee index unavailable ('+response.status+')');
+   const data=await response.json();
+   if(!Array.isArray(data.jetton_transfers))throw Error('Invalid TON Center fee index');
+   matches+=data.jetton_transfers.filter(tx=>matchesGaslessFee(tx,{traceId:d.trace_id,sender,senderJettonWallet,relay,master:config.master,amount:fee})).length;
+   if(data.jetton_transfers.length<100)break;
+  }
+  if(matches!==1)throw Error('Exactly one successful USDT relayer fee in the same trace was not verified');
+ }
  process.stdout.write(JSON.stringify({invoiceId:d.invoice_id,userId:d.user_id,amountMicros:d.amount,txHash:d.tx_hash,traceId:d.trace_id,senderWallet:d.sender_address,mode,ledgerEntries:ledger.n,legacyEntries:entry.n,network:'TON Mainnet',feeMicros:mode==='gasless'?d.metadata.gasless.fee:undefined,totalMicros:mode==='gasless'?d.metadata.gasless.totalMicros:undefined,relayAddress:mode==='gasless'?d.metadata.gasless.relayAddress:undefined,relayExternalHash:mode==='gasless'?d.metadata.gasless.relayExternalHash:undefined},null,2)+'\n');
 }finally{await db.end()}
