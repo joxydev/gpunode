@@ -60,7 +60,7 @@ case $mode in
   changed=1;printf 'TON_DEPOSIT_ACCESS=disabled\nENABLE_TON_USDT_DEPOSITS=false\n' >> "$envfile"
   ;;
  gasless-canary)
-  [[ $access == public && $gasless != true ]] || { echo 'Finish standard Mainnet canary and public rollout first.' >&2; exit 1; }
+  [[ ( $access == canary || $access == public ) && $gasless != true ]] || { echo 'Standard Mainnet deposits must be in canary or public mode; gasless must be off.' >&2; exit 1; }
   key=''
   read -rs -p 'TONAPI key (hidden; Enter = use stored key): ' key </dev/tty;echo
   if [[ -n $key ]]; then
@@ -72,8 +72,14 @@ case $mode in
   runtime "$node_bin" --input-type=module -e 'import("file:///srv/apps/gpunode/current/backend/dist/ton/gasless.js").then(async m=>{const {tonConfig}=await import("file:///srv/apps/gpunode/current/backend/dist/ton/config.js");const relay=await new m.TonApiGasless(tonConfig()).relay();if(!relay)throw Error("TONAPI does not support official USDT");process.stdout.write("TONAPI USDT relay verified\n")})'
   ;;
  gasless-all)
-  [[ $access == public && $gasless == true && $gasless_rollout == true ]] || { echo 'Gasless canary must be enabled first.' >&2; exit 1; }
-  changed=1;printf 'TON_GASLESS_SMOKE_OWNER_ONLY=false\n' >> "$envfile"
+  [[ ( $access == canary || $access == public ) && $gasless == true && $gasless_rollout == true ]] || { echo 'Gasless canary must be enabled while standard deposits are in canary or public mode.' >&2; exit 1; }
+  # The new W5 payment passed the full deposit and USDT relayer fee audit above.
+  # If standard access was still canary, open both paths together after that proof.
+  changed=1
+  if [[ $access == canary ]]; then
+   printf 'TON_DEPOSIT_ACCESS=public\nENABLE_TON_USDT_DEPOSITS=true\n' >> "$envfile"
+  fi
+  printf 'TON_GASLESS_SMOKE_OWNER_ONLY=false\n' >> "$envfile"
   ;;
  gasless-off)
   pending=$(runuser -u postgres -- psql -Atqc "SELECT count(*) FROM deposits WHERE status='PENDING' AND expires_at>now() AND metadata #> '{gasless,externalBoc}' IS NOT NULL" aethermind_v1)
