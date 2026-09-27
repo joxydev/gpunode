@@ -342,7 +342,7 @@ curl "${web[@]}" https://31.77.226.26/tonconnect-manifest.json -o "$backup/tonco
 curl "${web[@]}" https://31.77.226.26/assets/icons/icon-180.png -o "$backup/tonconnect-icon.png"
 printf '%s  %s\n' 'b21177972dbdeedbea731e826b070ff7fb148ec1f96e7892536e67e40732ce88' "$backup/public-offer.pdf" | sha256sum --check --status
 
-python3 - "$backup" "$sha" <<'PY'
+python3 - "$backup" "$sha" "$prior_access" <<'PY'
 import json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
 health = json.loads((root / 'https-health.json').read_text())
@@ -353,7 +353,10 @@ assert market['version'] == 'offer-88-2026-ai' and market['purchasesEnabled'] is
 assert market['nodes'][0]['dailyUsdt'] == '0.750000'
 assert market['nodes'][3]['dailyUsdt'] is None
 assert offer['version'] == '88-2026-AI-2026-09-21'
-assert offer['paymentsEnabled'] is False and offer['accrualEnabled'] is False
+expected_payments = sys.argv[3] != 'disabled'
+if offer['paymentsEnabled'] is not expected_payments:
+    raise RuntimeError('HTTPS offer payment flag differs from the preserved standard deposit mode: ' + sys.argv[3])
+assert offer['accrualEnabled'] is False
 manifest = json.loads((root / 'tonconnect-manifest.json').read_text())
 assert manifest['url'] == 'https://31.77.226.26' and manifest['iconUrl'].endswith('/assets/icons/icon-180.png')
 assert (root / 'tonconnect-icon.png').read_bytes().startswith(b'\x89PNG')
