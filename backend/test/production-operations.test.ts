@@ -18,7 +18,13 @@ test('stage 2 migration is additive and preserves previous user, ticket and ledg
   await db.query('INSERT INTO "Ticket" (id,"userId",message,"updatedAt") VALUES ($1,$2,$3,CURRENT_TIMESTAMP)',[ticket,'101','Old support ticket']);
   await db.query('INSERT INTO "LedgerEntry" (id,"userId","amountMicros",kind,"sourceId") VALUES ($1,$2,$3,$4,$5)',[ledger,'101','2000000','DEPOSIT_CONFIRMED','existing-deposit']);
   await db.exec(readFileSync(new URL('202609280001_production_operations/migration.sql',base),'utf8'));
+  await assert.rejects(db.query('INSERT INTO "Ticket" (id,"userId",message,"updatedAt",category) VALUES ($1,$2,$3,CURRENT_TIMESTAMP,$4)',[randomUUID(),'101','New payment issue','PAYMENT']),'old CHECK must reject production categories');
+  await db.exec(readFileSync(new URL('202609280002_support_categories/migration.sql',base),'utf8'));
   assert.equal((await db.query('SELECT message,reference_type FROM "Ticket" WHERE id=$1',[ticket])).rows[0].message,'Old support ticket');
+  for(const category of ['QUESTION','COMPLAINT','PAYMENT','WITHDRAWAL','ACCOUNT','WALLET','NODE','TECHNICAL','OTHER']){
+   await db.query('INSERT INTO "Ticket" (id,"userId",message,"updatedAt",category) VALUES ($1,$2,$3,CURRENT_TIMESTAMP,$4)',[randomUUID(),'101','Supported issue',category]);
+  }
+  await assert.rejects(db.query('INSERT INTO "Ticket" (id,"userId",message,"updatedAt",category) VALUES ($1,$2,$3,CURRENT_TIMESTAMP,$4)',[randomUUID(),'101','Unsupported issue','INVALID']));
   assert.equal(Number((await db.query('SELECT "amountMicros" FROM "LedgerEntry" WHERE id=$1',[ledger])).rows[0].amountMicros),2000000);
   const notice=randomUUID();
   await db.query('INSERT INTO notifications (id,user_id,type,title,message,dedupe_key) VALUES ($1,$2,$3,$4,$5,$6)',[notice,'101','DEPOSIT_CREDITED','Deposit','2 USDT','deposit:existing:CREDITED']);

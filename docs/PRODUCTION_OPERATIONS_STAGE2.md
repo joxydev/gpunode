@@ -20,4 +20,6 @@ Base commit on GitHub `main`: `adc3908d8543a582f89072d6a078e83696f35b38`.
 
 The VPS deploy script verifies the previous release is the exact stage 1 commit, builds and runs tests in a separate release, runs the HTTP integration suite against disposable PostgreSQL, backs up the live database, applies the additive migration, and switches the symlink. It keeps `runtime.env`, watcher unit and nginx configuration unchanged. On a failed post-switch check, it restores the previous release and service unit. The schema is forward only.
 
+The forward-only `202609280002_support_categories` migration widens the historical `ticket_category_valid` constraint. Stage 2's first isolated HTTP run discovered that the old CHECK rejected `PAYMENT`; it failed before the live database or release was changed. The new migration preserves existing tickets, admits every category accepted by the API, and keeps unknown categories rejected.
+
 After deployment, complete the real Telegram and W5 gasless payment smoke with a compatible wallet, verify `CREDITED`, one notification and one activity entry, and inspect the owner deposit view. For the withdrawal smoke, create a small test request, review it in Owner, reject it, and verify the reserved amount is released exactly once. No real withdrawal transfer is part of this stage.
