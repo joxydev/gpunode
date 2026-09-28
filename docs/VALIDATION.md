@@ -1,5 +1,14 @@
 # Проверка поставки оферты № 88/2026-AI
 
+## Этап 1: структура интерфейса (base `89d25180fcb10f969865ce189e742044082218d0`)
+
+- До изменений: `npm ci --ignore-scripts --no-audit --no-fund`, `npm run db:generate`, `npm test` (31 backend + 1 frontend), `npm run build` прошли.
+- После изменений: `npm test` включает backend account action, прежние TON Proof, стандартный USDT TON, W5/TONAPI/watcher/idempotency и frontend capabilities/dashboard model; `npm run build` собирает обе части. Публичный manifest проверяется с текущим IP и с отдельным `AETHERMIND_PUBLIC_ORIGIN`.
+- Dashboard берёт финансовое следующее действие из `/me.nextAction`, последнее пополнение из существующего списка invoice и события из ledger. Счёт не считается CREDITED по подписи или отправке транзакции.
+- Telegram BackButton виден только на вложенных экранах и модальных окнах, SettingsButton ведёт в профиль; CSS объединяет browser и Telegram safe area.
+- Настройки уведомлений сохраняются локально для пользователя, без включения Telegram push. Выход очищает текущую frontend session; отдельный серверный revoke не добавлен. Privacy помечена `LEGAL_REVIEW_REQUIRED`.
+- Live WebView, реальный новый blockchain-платёж и production deployment в рамках этой UI-поставки не выполнялись.
+
 ## Выполнено перед передачей
 
 - Установка по lockfile, Prisma generate, 21 unit/database-тест и production-сборка backend/frontend.

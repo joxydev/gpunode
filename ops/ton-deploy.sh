@@ -139,7 +139,7 @@ grep -Rqs 'Управление AetherMind' frontend/dist/assets/*.js
 grep -Rqs 'Choose your language' frontend/dist/assets/*.js
 grep -Rqs 'Alegeți limba' frontend/dist/assets/*.js
 grep -Rqs 'User Agreement' frontend/dist/assets/*.js
-grep -Rqs 'Мои активы' frontend/dist/assets/*.js
+grep -Rqs 'Мои ноды' frontend/dist/assets/*.js
 grep -Rqs 'Отменить счёт' frontend/dist/assets/*.js
 grep -Rqs 'cosmic-field.svg' frontend/dist/assets/*.css
 grep -Rqs 'Подключить TON-кошелёк' frontend/dist/assets/*.js

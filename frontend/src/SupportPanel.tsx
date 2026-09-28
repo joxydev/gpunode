@@ -2,6 +2,7 @@ import {useLanguage,intlLocale} from './i18n';
 import {useEffect,useRef,useState} from 'react';
 import {api,Ticket} from './api';
 import {Icon} from './Icons';
+import {useAppBack} from './navigation';
 
 export const ticketLabels:Record<string,string>={OPEN:'Ожидает ответа',IN_PROGRESS:'В работе',ANSWERED:'Ответ получен',CLOSED:'Закрыто'};
 const date=(value:string,language:'ru'|'en'|'ro')=>new Date(value).toLocaleString(intlLocale(language),{dateStyle:'short',timeStyle:'short'});
@@ -10,6 +11,7 @@ export default function SupportPanel({tickets,onRefresh}:{tickets:Ticket[];onRef
  const {t,language}=useLanguage();
  const [selected,setSelected]=useState(''),[detail,setDetail]=useState<Ticket|null>(null),[busy,setBusy]=useState(false),[loading,setLoading]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
  const request=useRef(0),sending=useRef(false);
+ useAppBack(Boolean(selected),()=>{request.current++;setSelected('');setDetail(null)});
  async function openTicket(id:string,markRead=true){
   const generation=++request.current;setSelected(id);setLoading(true);setError('');
   try{
