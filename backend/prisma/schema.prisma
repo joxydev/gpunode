@@ -25,6 +25,9 @@ model User {
   tonProofChallenges TonProofChallenge[]
   deposits TonDeposit[]
   walletLedger WalletLedger[]
+  notifications Notification[]
+  withdrawals WithdrawalRequest[]
+  dataRequests DataRequest[]
   @@index([referrerId])
   @@index([selectedTariffId])
 }
@@ -66,8 +69,60 @@ model Ticket {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   messages TicketMessage[]
+  referenceType String? @map("reference_type") @db.VarChar(24)
+  referenceId String? @map("reference_id") @db.VarChar(64)
   @@index([userId, createdAt])
   @@index([status, lastMessageAt])
+  @@index([referenceType, referenceId])
+}
+model Notification {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id")
+  user User @relation(fields: [userId], references: [id])
+  type String @db.VarChar(40)
+  title String @db.VarChar(120)
+  message String @db.VarChar(500)
+  referenceType String? @map("reference_type") @db.VarChar(24)
+  referenceId String? @map("reference_id") @db.VarChar(100)
+  dedupeKey String @unique @map("dedupe_key") @db.VarChar(160)
+  isRead Boolean @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  @@index([userId, createdAt, id])
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+model WithdrawalRequest {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id")
+  user User @relation(fields: [userId], references: [id])
+  idempotencyKey String @map("idempotency_key") @db.Uuid
+  asset String @default("USDT") @db.VarChar(10)
+  network String @default("TON") @db.VarChar(10)
+  destinationAddress String @map("destination_address") @db.VarChar(70)
+  amountMicros BigInt @map("amount_micros")
+  feeMicros BigInt? @map("fee_micros")
+  netAmountMicros BigInt? @map("net_amount_micros")
+  status String @default("REQUESTED") @db.VarChar(20)
+  txHash String? @unique @map("tx_hash") @db.VarChar(64)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  reviewedAt DateTime? @map("reviewed_at") @db.Timestamptz(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  rejectionReason String? @map("rejection_reason") @db.VarChar(1000)
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt, id])
+  @@index([status, createdAt])
+  @@map("withdrawal_requests")
+}
+model DataRequest {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id")
+  user User @relation(fields: [userId], references: [id])
+  kind String @db.VarChar(32)
+  status String @default("REQUESTED") @db.VarChar(20)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  reviewedAt DateTime? @map("reviewed_at") @db.Timestamptz(3)
+  @@index([userId, createdAt])
+  @@map("data_requests")
 }
 model TicketMessage {
   id String @id @default(uuid()) @db.Uuid

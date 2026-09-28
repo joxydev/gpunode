@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useRef,useState} from 'react';
+import {lazy,Suspense,useCallback,useEffect,useRef,useState} from 'react';
 import {useTonConnectUI,useTonWallet,useIsConnectionRestored} from '@tonconnect/ui-react';
 import {useLanguage,intlLocale} from './i18n';
 import {api,type Account} from './api';
@@ -6,6 +6,9 @@ import {Icon} from './Icons';
 import {tonCapabilities} from './ton-capabilities';
 import {useAppBack} from './navigation';
 import './ton-wallet.css';
+const Withdrawals=lazy(()=>import('./Withdrawals'));
+const Activity=lazy(()=>import('./Activity'));
+type SupportReference={referenceType:'DEPOSIT'|'WITHDRAWAL';referenceId:string;invoiceId?:string};
 
 type WalletState={balance:string;connectedWallet:string|null;rawAddress:string|null;verified:boolean;walletVersion:string|null;gaslessAvailable:boolean;paymentCanary:boolean;depositsEnabled:boolean;publicDepositsEnabled:boolean;minAmount:string;maxAmount:string;pending:number};
 type Deposit={id:string;invoiceId:string;amount:string;receivedAmount:string|null;status:string;sender:string;recipient:string;jettonMaster:string;txHash:string|null;traceId:string|null;gaslessSigned?:boolean;createdAt:string;expiresAt:string;confirmedAt:string|null;creditedAt:string|null};
@@ -17,10 +20,11 @@ function amount(value:string,locale:string){const [whole,frac='']=value.split('.
 function amount6(value:string,locale:string){const [whole,fraction='']=value.split('.');return new Intl.NumberFormat(locale).format(BigInt(whole||'0'))+'.'+fraction.padEnd(6,'0').slice(0,6)}
 const labels:Record<string,string>={PENDING:'Ожидаем перевод',DETECTED:'Обнаружен',CONFIRMED:'Подтверждён',CREDITED:'Зачислен',EXPIRED:'Время счёта истекло',FAILED:'Ошибка',REJECTED:'Отклонён',MANUAL_REVIEW:'Ручная проверка',CANCELLED:'Счёт отменён'};
 
-export default function WalletView({account,onRefresh,onLogin,onSupport,onWithdraw,initialView,viewRequest}:{account:Account|null;onRefresh:()=>Promise<void>;onLogin:()=>void;onSupport:()=>void;onWithdraw:()=>void;initialView:'deposit'|'history'|null;viewRequest:number}){
+export default function WalletView({account,onRefresh,onLogin,onSupport,onWithdraw,initialView,viewRequest}:{account:Account|null;onRefresh:()=>Promise<void>;onLogin:()=>void;onSupport:(reference?:SupportReference)=>void;onWithdraw:()=>void;initialView:'deposit'|'history'|'withdraw'|null;viewRequest:number}){
  const {t,language}=useLanguage(),locale=intlLocale(language);
  const [ui]=useTonConnectUI(),wallet=useTonWallet(),restored=useIsConnectionRestored();
  const [state,setState]=useState<WalletState|null>(null),[history,setHistory]=useState<Deposit[]>([]),[selected,setSelected]=useState<Deposit|null>(null),[step,setStep]=useState<'LIST'|'AMOUNT'|'GASLESS_REVIEW'|'WAITING'>('LIST'),[value,setValue]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [subview,setSubview]=useState<'finance'|'withdraw'|'activity'>('finance');
  const [standard,setStandard]=useState<Transaction|StructuredTransaction|null>(null),[quote,setQuote]=useState<GaslessQuote|null>(null),[manualStandard,setManualStandard]=useState(false),[signUnsupported,setSignUnsupported]=useState(false);
  const signedBoc=useRef<string|null>(null);
  const historyRef=useRef<HTMLDivElement>(null);
@@ -33,8 +37,8 @@ export default function WalletView({account,onRefresh,onLogin,onSupport,onWithdr
  },[account?.user.id,account?.updatedAt]);
  useEffect(()=>{void refresh().catch(e=>setError((e as Error).message))},[refresh]);
  useEffect(()=>{const id=setInterval(()=>{if(document.visibilityState==='visible')void refresh().catch(()=>{})},10000);return()=>clearInterval(id)},[refresh]);
- useEffect(()=>{if(!viewRequest)return;if(initialView==='deposit'&&account)setStep('AMOUNT');else if(initialView==='history'){setStep('LIST');setTimeout(()=>historyRef.current?.scrollIntoView({behavior:'smooth',block:'start'}),0)}},[viewRequest]);
- useAppBack(step!=='LIST'||Boolean(selected),()=>{if(step!=='LIST')setStep('LIST');else setSelected(null)});
+ useEffect(()=>{if(!viewRequest)return;if(initialView==='deposit'&&account){setSubview('finance');setStep('AMOUNT')}else if(initialView==='history'){setSubview('activity');setStep('LIST')}else if(initialView==='withdraw'&&account){setSubview('withdraw');setStep('LIST')}},[viewRequest]);
+ useAppBack(subview!=='finance'||step!=='LIST'||Boolean(selected),()=>{if(subview!=='finance')setSubview('finance');else if(step!=='LIST')setStep('LIST');else setSelected(null)});
  async function connect(){if(!account){onLogin();return}setBusy(true);setError('');try{
    ui.setConnectRequestParameters({state:'loading'});
    const nonce=await api<{payload:string}>('/v1/ton/proof/payload',{});
@@ -84,6 +88,8 @@ export default function WalletView({account,onRefresh,onLogin,onSupport,onWithdr
  }
  const verified=Boolean(wallet&&wallet.account.chain==='-239'&&state?.verified&&
    (wallet.account.address===state.rawAddress||wallet.account.address===state.connectedWallet));
+ if(subview==='withdraw'&&account)return <Suspense fallback={<div className="activity-skeleton" role="status" aria-label={t('Загрузка…')}><i/><i/></div>}><Withdrawals balance={account.balance} onBack={()=>setSubview('finance')} onRefresh={onRefresh} onSupport={onSupport}/></Suspense>;
+ if(subview==='activity')return <Suspense fallback={<div className="activity-skeleton" role="status" aria-label={t('Загрузка…')}><i/><i/></div>}><Activity onBack={()=>setSubview('finance')} onSupport={onSupport}/></Suspense>;
  return <section className="ton-wallet">
   <div className="section-title"><h1>{t('Финансы')}</h1><span className="micro">USDT · TON NETWORK</span></div>
   {error&&<div className="alert error" role="alert">{error}<button onClick={()=>setError('')}>×</button></div>}
@@ -107,9 +113,9 @@ export default function WalletView({account,onRefresh,onLogin,onSupport,onWithdr
     <button className="secondary" onClick={()=>{setStep('LIST');void refresh()}}>{t('История операций')}</button>
    </div>:<div className="wallet-actions"><button className="primary" disabled={!verified||!state?.depositsEnabled} onClick={()=>setStep('AMOUNT')}><Icon name="plus"/> {t('Пополнить USDT')}</button><p>{state?.depositsEnabled?t('Пополнение доступно через TON Connect.'):t('Пополнение временно недоступно. Обратитесь в поддержку.')}</p></div>}
   {(account?.user.isOwner||state?.paymentCanary)&&wallet&&<details className="panel wallet-diagnostics"><summary>TON Connect · diagnostics</summary><pre>{JSON.stringify({appName:wallet.device.appName,appVersion:wallet.device.appVersion,chain:wallet.account.chain,features:wallet.device.features,walletVersion:state?.walletVersion,gaslessAvailable:state?.gaslessAvailable,supportsSignMessage:capabilities.supportsSignMessage,supportsStructuredJetton:capabilities.supportsStructuredJetton,selectedPaymentMode:quote&&!signUnsupported?'GASLESS':'STANDARD'},null,2)}</pre></details>}
-  {account&&<div className="panel wallet-guard"><Icon name="shield" size={19}/><div><b>{t('Вывод вручную')}</b><p>{t('Автоматические выплаты не подключены. Запрос на вывод рассматривает оператор через поддержку; до рассмотрения баланс не списывается.')}</p><button className="secondary" onClick={onSupport}>{t('Обратиться в поддержку')}</button></div></div>}
-  <div className="section-title" ref={historyRef}><h2>{t('История операций')}</h2><span className="micro">TON / USDT</span></div>
+  {account&&<div className="panel wallet-guard"><Icon name="shield" size={19}/><div><b>{t('Вывод вручную')}</b><p>{t('Заявка резервирует сумму в учётном балансе. Оператор проверяет запрос и выполняет перевод вручную.')}</p><button className="secondary" onClick={onWithdraw}>{t('Создать заявку на вывод')}</button></div></div>}
+  <div className="section-title" ref={historyRef}><h2>{t('История операций')}</h2><button className="secondary" onClick={()=>setSubview('activity')}>{t('Все операции')}</button></div>
   {!history.length?<div className="panel empty"><Icon name="wallet" size={30}/><h3>{t('Операций пока нет')}</h3><p>{t('Создайте счёт, чтобы пополнить баланс USDT TON.')}</p><button className="secondary" disabled={!verified||!state?.depositsEnabled} onClick={()=>setStep('AMOUNT')}>{t('Пополнить')}</button></div>:<div className="wallet-history">{history.map(item=><button className="panel" key={item.id} aria-expanded={selected?.id===item.id} onClick={()=>setSelected(selected?.id===item.id?null:item)}><span><b>{amount(item.amount,locale)} USDT · {t('Пополнение')}</b><small>TON Mainnet · {new Date(item.createdAt).toLocaleString(locale)}</small></span><span className={'wallet-status '+item.status.toLowerCase()}>{t(labels[item.status]||item.status)}</span></button>)}</div>}
-  {selected&&<article className="panel wallet-details"><h3>{t('Детали платежа')}</h3><dl><div><dt>Invoice ID</dt><dd>{selected.invoiceId}</dd></div><div><dt>{t('Сумма')}</dt><dd>{amount(selected.amount,locale)} USDT</dd></div><div><dt>{t('Статус')}</dt><dd>{t(labels[selected.status]||selected.status)}</dd></div><div><dt>{t('Сеть')}</dt><dd>TON</dd></div><div><dt>{t('Кошелёк')}</dt><dd>{short(selected.sender)}</dd></div><div><dt>{t('Создан')}</dt><dd>{new Date(selected.createdAt).toLocaleString(locale)}</dd></div><div><dt>{t('Подтверждён')}</dt><dd>{selected.confirmedAt?new Date(selected.confirmedAt).toLocaleString(locale):'—'}</dd></div>{selected.txHash&&<div><dt>Transaction hash</dt><dd><a href={'https://tonviewer.com/transaction/'+selected.txHash} target="_blank" rel="noopener noreferrer">{short(selected.txHash)} ↗</a></dd></div>}</dl>{selected.status==='PENDING'&&!selected.gaslessSigned&&!signedBoc.current&&<button className="secondary" disabled={busy} onClick={()=>void cancel()}>{t('Отменить счёт')}</button>}</article>}
+  {selected&&<article className="panel wallet-details"><h3>{t('Детали платежа')}</h3><dl><div><dt>Invoice ID</dt><dd>{selected.invoiceId}</dd></div><div><dt>{t('Сумма')}</dt><dd>{amount(selected.amount,locale)} USDT</dd></div><div><dt>{t('Статус')}</dt><dd>{t(labels[selected.status]||selected.status)}</dd></div><div><dt>{t('Сеть')}</dt><dd>TON</dd></div><div><dt>{t('Кошелёк')}</dt><dd>{short(selected.sender)}</dd></div><div><dt>{t('Создан')}</dt><dd>{new Date(selected.createdAt).toLocaleString(locale)}</dd></div><div><dt>{t('Подтверждён')}</dt><dd>{selected.confirmedAt?new Date(selected.confirmedAt).toLocaleString(locale):'—'}</dd></div>{selected.txHash&&<div><dt>Transaction hash</dt><dd><a href={'https://tonviewer.com/transaction/'+selected.txHash} target="_blank" rel="noopener noreferrer">{short(selected.txHash)} ↗</a></dd></div>}</dl>{selected.status==='PENDING'&&!selected.gaslessSigned&&!signedBoc.current&&<button className="secondary" disabled={busy} onClick={()=>void cancel()}>{t('Отменить счёт')}</button>}<button className="secondary" onClick={()=>onSupport({referenceType:'DEPOSIT',referenceId:selected.id,invoiceId:selected.invoiceId})}>{t('Сообщить о проблеме')}</button></article>}
  </section>;
 }

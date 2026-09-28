@@ -4,6 +4,7 @@ import {Address} from '@ton/ton';
 import {config,center} from './service.js';
 import {parseNotification,type Notification,type ChainTransaction} from '../ton/notification.js';
 import {usdtString,friendly} from '../ton/config.js';
+import {notify} from '../production.js';
 
 // A dedicated systemd service runs this worker; API processes never scan or credit.
 const db=createDb(process.env.DATABASE_URL!,3);
@@ -34,6 +35,7 @@ export async function applyNotification(prisma:PrismaClient,note:Notification){
   if(note.time*1000<current.createdAt.getTime()-60000){await addUnmatched('TRANSFER_BEFORE_INVOICE');return 'UNMATCHED';}
   if(note.amount!==current.requestedMicros||note.time*1000>current.expiresAt.getTime()){
    await tx.tonDeposit.update({where:{id:current.id},data:{status:'MANUAL_REVIEW',receivedMicros:note.amount,txHash:note.txHash,traceId:note.traceId,detectedAt:new Date(),metadata:{reason:note.amount!==current.requestedMicros?'AMOUNT_MISMATCH':'LATE_TRANSFER'}}});
+   await notify(tx,{userId:current.userId,type:'DEPOSIT_MANUAL_REVIEW',title:'Пополнение требует проверки',message:usdtString(note.amount)+' USDT · TON',referenceType:'DEPOSIT',referenceId:current.id,dedupeKey:'deposit:'+current.id+':MANUAL_REVIEW'});
    return 'MANUAL_REVIEW';
   }
   const detection=new Date();
@@ -44,6 +46,7 @@ export async function applyNotification(prisma:PrismaClient,note:Notification){
   await tx.ledgerEntry.create({data:{userId:current.userId,amountMicros:note.amount,kind:'DEPOSIT_CONFIRMED',sourceId:'ton-deposit:'+current.id}});
   await tx.walletLedger.create({data:{userId:current.userId,depositId:current.id,amountMicros:note.amount,balanceBefore:before,balanceAfter:before+note.amount,type:'DEPOSIT',asset:'USDT',metadata:{network:'TON',txHash:note.txHash}}});
   await tx.tonDeposit.update({where:{id:current.id},data:{status:'CREDITED',creditedAt:detection}});
+  await notify(tx,{userId:current.userId,type:'DEPOSIT_CREDITED',title:'Пополнение подтверждено',message:usdtString(note.amount)+' USDT · TON',referenceType:'DEPOSIT',referenceId:current.id,dedupeKey:'deposit:'+current.id+':CREDITED'});
   return 'CREDITED';
  });
 }

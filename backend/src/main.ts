@@ -15,6 +15,7 @@ import {journey,OFFER_DOCUMENT_SHA256,OFFER_NUMBER,OFFER_PUBLISHED_AT,OFFER_SIGN
 import {nextAccountAction} from './account-state.js';
 import {DepositsService,config as tonConfig,center as tonCenter} from './deposits/service.js';
 import {GaslessDeposits} from './deposits/gasless-service.js';
+import {activity,createWithdrawal,notify,presentWithdrawal,requestData,updateWithdrawal} from './production.js';
 const {BOT_TOKEN,SESSION_SECRET,OWNER_TELEGRAM_ID,DATABASE_URL}=process.env;
 const AGREEMENT_VERSION='2026-09-14';
 const DEPOSIT_KINDS=['DEPOSIT','DEPOSIT_CONFIRMED','CRYPTO_DEPOSIT_CONFIRMED'];
@@ -120,14 +121,15 @@ class Api {
   }
   @Get('me') async me(@Headers('authorization') auth:string){
     const id=identity(auth);const user=await db.user.findUnique({where:{id},include:{selectedTariff:true,offerAcceptances:{where:{version:OFFER_VERSION},take:1}}});if(!user)throw new UnauthorizedException();
-    const [requests,entries,total,refs,tickets,leases,unreadSupport]=await Promise.all([
+    const [requests,entries,total,refs,tickets,leases,unreadSupport,unreadNotifications]=await Promise.all([
       db.rentalRequest.findMany({where:{userId:id,isTestOrder:false},orderBy:{createdAt:'desc'},take:50}),
       db.ledgerEntry.findMany({where:{userId:id},orderBy:{createdAt:'desc'},take:50}),
       db.ledgerEntry.aggregate({where:{userId:id},_sum:{amountMicros:true}}),
       db.user.findMany({where:{referrerId:id},orderBy:{createdAt:'desc'},take:100,select:{id:true,createdAt:true,selectedTariffId:true,offerAcceptances:{where:{version:OFFER_VERSION},select:{id:true},take:1},leases:{where:{status:{in:['PROVISIONING','ACTIVE','OVERCLOCKED']}},select:{id:true},take:1}}}),
       db.ticket.findMany({where:{userId:id},orderBy:[{lastMessageAt:'desc'},{id:'desc'}],take:30,select:{id:true,category:true,subject:true,status:true,userUnread:true,lastMessageAt:true,createdAt:true,updatedAt:true,_count:{select:{messages:true}},messages:{orderBy:[{createdAt:'desc'},{id:'desc'}],take:1,select:{id:true,authorType:true,body:true,createdAt:true}}}}),
       db.userLease.findMany({where:{userId:id},orderBy:{createdAt:'desc'},take:30,include:{node:{select:{name:true}}}}),
-      db.ticket.count({where:{userId:id,userUnread:true}})
+      db.ticket.count({where:{userId:id,userUnread:true}}),
+      db.notification.count({where:{userId:id,isRead:false}})
     ]);
     const accepted=user.agreementVersion===AGREEMENT_VERSION&&Boolean(user.agreementAcceptedAt),offerAcceptance=user.offerAcceptances[0]||null;
     const balanceMicros=total._sum.amountMicros||0n,selected=offerTariffs.find(t=>t.nodeId===user.selectedTariffId)||null;
@@ -136,7 +138,7 @@ class Api {
     const funded=Boolean(selected)&&balanceMicros>=BigInt(selected!.depositUsdt)*1000000n;
     const epochComplete=leases.some(l=>l.status==='EXPIRED'||new Date(l.expiresAt)<=new Date());
     const referralItems=refs.map(r=>{const active=Boolean(r.leases.length),selectedTariff=Boolean(r.selectedTariffId),offerAccepted=Boolean(r.offerAcceptances.length);return {id:createHmac('sha256',SESSION_SECRET!).update('ref:'+r.id).digest('hex').slice(0,12),label:'Участник '+createHmac('sha256',SESSION_SECRET!).update(r.id).digest('hex').slice(0,4).toUpperCase(),stage:active?'ACTIVE':selectedTariff?'TARIFF_SELECTED':offerAccepted?'OFFER_ACCEPTED':'REGISTERED',joinedAt:r.createdAt};});
-    return {user:{id:user.id,name:user.name,username:user.username,createdAt:user.createdAt,isOwner:id===OWNER_TELEGRAM_ID,preferredLanguage:user.preferredLanguage},agreement:{version:AGREEMENT_VERSION,accepted,acceptedAt:accepted?user.agreementAcceptedAt:null},offer:{number:OFFER_NUMBER,version:OFFER_VERSION,documentSha256:OFFER_DOCUMENT_SHA256,accepted:Boolean(offerAcceptance),acceptedAt:offerAcceptance?.acceptedAt||null},balance:microsToDecimal(balanceMicros),earnedToday:null,selectedTariff:selected?{...selected,selectedAt:user.selectedTariffAt}:null,nextAction:nextAccountAction({selected,balanceMicros,requests,leases}),journey:journey({selected:Boolean(selected),funded,ordered,epochComplete,pendingOrder}),requests:requests.map(presentRequest),tickets,notifications:{unreadSupport,unreadOrders:requests.filter(r=>!r.isTestOrder&&r.userUnread).length},activeNodes:leases,referrals:{total:referralItems.length,active:referralItems.filter(r=>r.stage==='ACTIVE').length,items:referralItems,rewardConfigured:false},entries:entries.map(e=>({...e,amountMicros:undefined,amount:microsToDecimal(e.amountMicros)})),paymentsEnabled:tonConfig.enabled,accrualEnabled:false,updatedAt:new Date().toISOString()};
+    return {user:{id:user.id,name:user.name,username:user.username,createdAt:user.createdAt,isOwner:id===OWNER_TELEGRAM_ID,preferredLanguage:user.preferredLanguage},agreement:{version:AGREEMENT_VERSION,accepted,acceptedAt:accepted?user.agreementAcceptedAt:null},offer:{number:OFFER_NUMBER,version:OFFER_VERSION,documentSha256:OFFER_DOCUMENT_SHA256,accepted:Boolean(offerAcceptance),acceptedAt:offerAcceptance?.acceptedAt||null},balance:microsToDecimal(balanceMicros),earnedToday:null,selectedTariff:selected?{...selected,selectedAt:user.selectedTariffAt}:null,nextAction:nextAccountAction({selected,balanceMicros,requests,leases}),journey:journey({selected:Boolean(selected),funded,ordered,epochComplete,pendingOrder}),requests:requests.map(presentRequest),tickets,notifications:{unreadSupport,unreadOrders:requests.filter(r=>!r.isTestOrder&&r.userUnread).length,unread:unreadNotifications},activeNodes:leases,referrals:{total:referralItems.length,active:referralItems.filter(r=>r.stage==='ACTIVE').length,items:referralItems,rewardConfigured:false},entries:entries.map(e=>({...e,amountMicros:undefined,amount:microsToDecimal(e.amountMicros)})),paymentsEnabled:tonConfig.enabled,accrualEnabled:false,updatedAt:new Date().toISOString()};
   }
   @Post('agreement/accept') async acceptAgreement(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){
     const id=identity(auth),version=field(body,'version',32);if(version!==AGREEMENT_VERSION)throw new BadRequestException('Версия соглашения устарела. Обновите приложение.');
@@ -171,12 +173,17 @@ class Api {
   @Post('support') async support(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){
     const userId=await agreed(auth),message=field(body,'message',2000,5);
     const category=body.category===undefined?'QUESTION':field(body,'category',16),subject=body.subject===undefined?'Обращение':field(body,'subject',120,3);
-    if(!['QUESTION','COMPLAINT'].includes(category))throw new BadRequestException('Выберите тип обращения.');
+    if(!['QUESTION','PAYMENT','WITHDRAWAL','ACCOUNT','WALLET','NODE','TECHNICAL','OTHER','COMPLAINT'].includes(category))throw new BadRequestException('Выберите тип обращения.');
+    const referenceType=body.referenceType===undefined?null:field(body,'referenceType',24);
+    const referenceId=referenceType?uuid(field(body,'referenceId',36)):null;
+    if(referenceType&&!['DEPOSIT','WITHDRAWAL'].includes(referenceType)||!referenceType&&body.referenceId!==undefined)throw new BadRequestException('Некорректная ссылка на операцию.');
+    if(referenceType==='DEPOSIT'&&!await db.tonDeposit.findFirst({where:{id:referenceId!,userId},select:{id:true}}))throw new NotFoundException('Пополнение не найдено.');
+    if(referenceType==='WITHDRAWAL'&&!await db.withdrawalRequest.findFirst({where:{id:referenceId!,userId},select:{id:true}}))throw new NotFoundException('Заявка не найдена.');
     return db.$transaction(async tx=>{
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${userId}, 31))`;
       if(await tx.ticket.count({where:{userId,createdAt:{gt:new Date(Date.now()-3600000)}}})>=5)throw new BadRequestException('Не более 5 обращений в час.');
       const now=new Date();
-      const result=await tx.ticket.create({data:{userId,message,category,subject,lastMessageAt:now,ownerUnread:true,userUnread:false,messages:{create:{authorType:'USER',authorId:userId,body:message,createdAt:now}}}});
+      const result=await tx.ticket.create({data:{userId,message,category,subject,referenceType,referenceId,lastMessageAt:now,ownerUnread:true,userUnread:false,messages:{create:{authorType:'USER',authorId:userId,body:message,createdAt:now}}}});
       await tx.audit.create({data:{actorId:userId,action:'SUPPORT_CREATED',targetId:result.id}});return result;
     });
   }
@@ -204,7 +211,23 @@ class Api {
     if(!result.count)throw new NotFoundException('Обращение не найдено.');return {read:true};
   }
   @Post('payments') async payment(@Headers('authorization') auth:string){await participating(auth);throw new ServiceUnavailableException('Для пополнения USDT TON используйте TON Connect в разделе «Кошелёк». Не переводите средства по реквизитам из сообщений.');}
-  @Post('withdrawals') async withdrawal(@Headers('authorization') auth:string){await participating(auth);throw new ServiceUnavailableException('Автоматический вывод отключён. Запросите выплату через поддержку; средства не списаны.');}
+  @Post('withdrawals') async withdrawal(@Headers('authorization') auth:string){await participating(auth);throw new ServiceUnavailableException('Автоматический вывод отключён. Создайте заявку в разделе «Финансы».');}
+  @Get('v1/notifications') async notifications(@Headers('authorization') auth:string){const userId=await participating(auth);const [items,unread]=await Promise.all([db.notification.findMany({where:{userId},orderBy:[{createdAt:'desc'},{id:'desc'}],take:100,select:{id:true,type:true,title:true,message:true,referenceType:true,referenceId:true,isRead:true,createdAt:true}}),db.notification.count({where:{userId,isRead:false}})]);return {items,unread};}
+  @Post('v1/notifications/read-all') async readNotifications(@Headers('authorization') auth:string){const userId=await participating(auth);await db.notification.updateMany({where:{userId,isRead:false},data:{isRead:true}});return {read:true};}
+  @Post('v1/notifications/:id/read') async readNotification(@Headers('authorization') auth:string,@Param('id') target:string){const userId=await participating(auth),id=uuid(target);const result=await db.notification.updateMany({where:{id,userId},data:{isRead:true}});if(!result.count)throw new NotFoundException('Уведомление не найдено.');return {read:true};}
+  @Post('v1/withdrawals') async createWithdrawal(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){return createWithdrawal(db,await participating(auth),body);}
+  @Get('v1/withdrawals') async withdrawals(@Headers('authorization') auth:string){const userId=await participating(auth);return {items:(await db.withdrawalRequest.findMany({where:{userId},orderBy:[{createdAt:'desc'},{id:'desc'}],take:50})).map(presentWithdrawal)};}
+  @Get('v1/withdrawals/:id') async withdrawalDetail(@Headers('authorization') auth:string,@Param('id') target:string){const userId=await participating(auth);const row=await db.withdrawalRequest.findFirst({where:{id:uuid(target),userId}});if(!row)throw new NotFoundException('Заявка не найдена.');return presentWithdrawal(row);}
+  @Post('v1/withdrawals/:id/cancel') async cancelWithdrawal(@Headers('authorization') auth:string,@Param('id') target:string){return updateWithdrawal(db,await participating(auth),uuid(target),{status:'CANCELLED'},false);}
+  @Get('v1/admin/withdrawals') async ownerWithdrawals(@Headers('authorization') auth:string,@QueryParam('page') page?:string){await participatingOwner(auth);const n=this.pageNumber(page),where={};const [rows,total]=await Promise.all([db.withdrawalRequest.findMany({where,include:{user:{select:{id:true,name:true,username:true}}},orderBy:[{createdAt:'desc'},{id:'desc'}],skip:n*30,take:30}),db.withdrawalRequest.count({where})]);return {items:rows.map(row=>({...presentWithdrawal(row),user:row.user})),page:n,total,hasMore:(n+1)*30<total};}
+  @Get('v1/admin/withdrawals/:id') async ownerWithdrawal(@Headers('authorization') auth:string,@Param('id') target:string){await participatingOwner(auth);const row=await db.withdrawalRequest.findUnique({where:{id:uuid(target)},include:{user:{select:{id:true,name:true,username:true}}}});if(!row)throw new NotFoundException();return {...presentWithdrawal(row),user:row.user};}
+  @Patch('v1/admin/withdrawals/:id') async reviewWithdrawal(@Headers('authorization') auth:string,@Param('id') target:string,@Body() body:Record<string,unknown>){return updateWithdrawal(db,await participatingOwner(auth),uuid(target),body,true);}
+  @Get('v1/activity') async unifiedActivity(@Headers('authorization') auth:string,@QueryParam('type') type?:string){return activity(db,await participating(auth),type||'ALL');}
+  @Get('v1/status') async status(@Headers('authorization') auth:string){await participating(auth);const [cursor,relay]=await Promise.all([db.tonWatcherCursor.findUnique({where:{id:'TON_USDT'}}),gasless.provider.enabled?gasless.provider.relay().catch(()=>null):Promise.resolve(null)]);const fresh=Boolean(cursor&&Date.now()-cursor.updatedAt.getTime()<180000);return {platform:'OPERATIONAL',tonDeposits:!tonConfig.enabled?'PAUSED':!fresh?'DEGRADED':tonConfig.access==='canary'?'LIMITED':'OPERATIONAL',gasless:!gasless.provider.enabled?'PAUSED':!relay?'DEGRADED':tonConfig.gaslessSmokeOwnerOnly?'LIMITED':'OPERATIONAL',withdrawals:'MANUAL',orders:'LIMITED',build:process.env.APP_COMMIT||'local',network:'TON Mainnet'};}
+  @Get('v1/admin/operations') async operations(@Headers('authorization') auth:string){await participatingOwner(auth);const cursor=await db.tonWatcherCursor.findUnique({where:{id:'TON_USDT'}});const checks=await Promise.allSettled([tonConfig.apiKey?tonCenter.jettonWallet(tonConfig.treasury):Promise.reject(),gasless.provider.enabled?gasless.provider.relay():Promise.reject(),process.env.BOT_TOKEN?fetch('https://api.telegram.org/bot'+process.env.BOT_TOKEN+'/getWebhookInfo',{signal:AbortSignal.timeout(2500)}).then(r=>r.ok):Promise.reject()]);return {backend:'OPERATIONAL',database:'OPERATIONAL',tonCenter:checks[0].status==='fulfilled'?'OPERATIONAL':'UNAVAILABLE',tonApi:checks[1].status==='fulfilled'&&Boolean(checks[1].value)?'OPERATIONAL':'UNAVAILABLE',telegram:checks[2].status==='fulfilled'&&checks[2].value?'OPERATIONAL':'UNAVAILABLE',depositWatcher:cursor&&Date.now()-cursor.updatedAt.getTime()<180000?'OPERATIONAL':'DEGRADED',lastReconciliation:cursor?.updatedAt||null,gasless:gasless.provider.enabled?(tonConfig.gaslessSmokeOwnerOnly?'CANARY':'PUBLIC'):'DISABLED',depositMode:tonConfig.access,withdrawalMode:'MANUAL',orders:'LIMITED',accrual:'DISABLED',build:process.env.APP_COMMIT||'local',uptimeSeconds:Math.floor(process.uptime())};}
+  @Post('v1/data-requests') async createDataRequest(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){return requestData(db,await agreed(auth),body.kind);}
+  @Get('v1/data-requests') async dataRequests(@Headers('authorization') auth:string){const userId=await agreed(auth);return {items:await db.dataRequest.findMany({where:{userId},orderBy:{createdAt:'desc'},take:20})};}
+  @Get('v1/admin/data-requests') async ownerDataRequests(@Headers('authorization') auth:string,@QueryParam('page') page?:string){await participatingOwner(auth);const n=this.pageNumber(page);return {items:await db.dataRequest.findMany({include:{user:{select:{id:true,name:true,username:true}}},orderBy:{createdAt:'desc'},skip:n*30,take:30}),page:n};}
   @Post('v1/ton/proof/payload') async tonPayload(@Headers('authorization') auth:string){return deposits.challenge(await participating(auth));}
   @Post('v1/ton/proof/verify') async tonVerify(@Headers('authorization') auth:string,@Body() body:any){return deposits.verify(await participating(auth),body);}
   @Get('v1/ton/health') async tonHealth(@Headers('authorization') auth:string){
@@ -294,7 +317,7 @@ class Api {
   @Get('admin/tickets') async tickets(@Headers('authorization') auth:string,@QueryParam('page') page?:string,@QueryParam('status') status?:string,@QueryParam('category') category?:string){
     await participatingOwner(auth);const pageNumber=this.pageNumber(page),skip=pageNumber*30;
     if(status&&!['OPEN','IN_PROGRESS','ANSWERED','CLOSED'].includes(status))throw new BadRequestException();
-    if(category&&!['QUESTION','COMPLAINT'].includes(category))throw new BadRequestException();
+    if(category&&!['QUESTION','PAYMENT','WITHDRAWAL','ACCOUNT','WALLET','NODE','TECHNICAL','OTHER','COMPLAINT'].includes(category))throw new BadRequestException();
     const where={...(status?{status}:{}),...(category?{category}:{})};
     const [rows,total]=await Promise.all([
       db.ticket.findMany({where,orderBy:[{lastMessageAt:'desc'},{id:'desc'}],skip,take:30,select:{id:true,category:true,subject:true,status:true,ownerUnread:true,userUnread:true,lastMessageAt:true,createdAt:true,updatedAt:true,user:{select:{id:true,name:true,username:true}},_count:{select:{messages:true}},messages:{orderBy:[{createdAt:'desc'},{id:'desc'}],take:1,select:{id:true,authorType:true,body:true,createdAt:true}}}}),
@@ -344,7 +367,8 @@ class Api {
       const ownerMessages=reply?1:await tx.ticketMessage.count({where:{ticketId:id,authorType:'OWNER'}});
       if(['ANSWERED','CLOSED'].includes(status)&&!ownerMessages)throw new BadRequestException('Добавьте ответ пользователю перед закрытием.');
       const now=new Date();
-      if(reply)await tx.ticketMessage.create({data:{ticketId:id,authorType:'OWNER',authorId:actorId,body:reply,createdAt:now}});
+      const ownerMessage=reply?await tx.ticketMessage.create({data:{ticketId:id,authorType:'OWNER',authorId:actorId,body:reply,createdAt:now}}):null;
+      if(ownerMessage)await notify(tx,{userId:current.userId,type:'SUPPORT_REPLY',title:'Ответ поддержки',message:reply!.slice(0,500),referenceType:'SUPPORT',referenceId:id,dedupeKey:'support-message:'+ownerMessage.id});
       const notifyUser=Boolean(reply)||status==='CLOSED'||current.status==='CLOSED';
       const result=await tx.ticket.update({where:{id},data:{reply,status,ownerUnread:false,userUnread:notifyUser?true:undefined,lastMessageAt:reply?now:undefined,closedAt:status==='CLOSED'?now:null}});
       await tx.audit.create({data:{actorId,action:`SUPPORT_${status}`,targetId:id}});return result;

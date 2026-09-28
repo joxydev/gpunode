@@ -3,6 +3,7 @@ import {BadRequestException,ForbiddenException,NotFoundException,ServiceUnavaila
 import type {PrismaClient,TonDeposit} from '@prisma/client';
 import {Address} from '@ton/ton';
 import {tonConfig,usdtString,usdtUnits,friendly,attachForUser,structuredForUser,paymentCanary,depositAccessAllows} from '../ton/config.js';
+import {notify} from '../production.js';
 import {TonCenter} from '../ton/center.js';
 import {buildJettonTransfer,buildStructuredJettonTransfer} from '../ton/jetton.js';
 import {verifyTonProof,type ProofInput} from '../ton/proof.js';
@@ -80,7 +81,9 @@ export class DepositsService {
    const hour=new Date(Date.now()-3600000);
    if(await tx.tonDeposit.count({where:{userId,createdAt:{gte:hour}}})>=5)throw new BadRequestException('Слишком много счетов за час.');
    if(await tx.tonDeposit.count({where:{userId,status:'PENDING',expiresAt:{gt:new Date()}}})>=1)throw new BadRequestException('Сначала завершите или отмените предыдущий счёт.');
-   return tx.tonDeposit.create({data:{invoiceId,userId,network:'TON',asset:'USDT',senderAddress:sender.toRawString(),recipientAddress:config.treasury.toRawString(),jettonMaster:config.master.toRawString(),requestedMicros:amount,expiresAt:new Date(Date.now()+maxAge),queryId,metadata:{standardAttachNano:attachForUser(config,userId).toString(),notificationForwardNano:config.notificationForwardNano.toString()}}});
+   const created=await tx.tonDeposit.create({data:{invoiceId,userId,network:'TON',asset:'USDT',senderAddress:sender.toRawString(),recipientAddress:config.treasury.toRawString(),jettonMaster:config.master.toRawString(),requestedMicros:amount,expiresAt:new Date(Date.now()+maxAge),queryId,metadata:{standardAttachNano:attachForUser(config,userId).toString(),notificationForwardNano:config.notificationForwardNano.toString()}}});
+   await notify(tx,{userId,type:'DEPOSIT_CREATED',title:'Счёт на пополнение создан',message:usdtString(amount)+' USDT · TON',referenceType:'DEPOSIT',referenceId:created.id,dedupeKey:'deposit:'+created.id+':CREATED'});
+   return created;
   });
   return {deposit:safeDeposit(row),transaction:buildJettonTransfer({sender,treasury:config.treasury,jettonWallet:senderJetton,usdtAmount:amount,queryId,invoiceId,responseDestination:sender,attachAmount:attachForUser(config,userId),forwardAmount:config.notificationForwardNano,expiresAt:row.expiresAt}),structuredTransaction:structuredForUser(config,userId)?buildStructuredJettonTransfer({sender,treasury:config.treasury,master:config.master,usdtAmount:amount,queryId,invoiceId,forwardAmount:config.notificationForwardNano,expiresAt:row.expiresAt}):null};
  }
