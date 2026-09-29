@@ -16,6 +16,8 @@ import {nextAccountAction} from './account-state.js';
 import {DepositsService,config as tonConfig,center as tonCenter} from './deposits/service.js';
 import {GaslessDeposits} from './deposits/gasless-service.js';
 import {activity,createWithdrawal,notify,presentWithdrawal,requestData,updateWithdrawal} from './production.js';
+import {activate,leaseId,presentLease,purchase,quoteUnbond,rejectProvisioning,unbond} from './financial-cycle.js';
+import {financialAccess,financialFlag,financialOffer} from './financial-offer.js';
 const {BOT_TOKEN,SESSION_SECRET,OWNER_TELEGRAM_ID,DATABASE_URL}=process.env;
 const AGREEMENT_VERSION='2026-09-14';
 const DEPOSIT_KINDS=['DEPOSIT','DEPOSIT_CONFIRMED','CRYPTO_DEPOSIT_CONFIRMED'];
@@ -33,8 +35,8 @@ const botWords={
 } satisfies Record<BotLanguage,Record<string,string>>;
 function identity(auth?:string) {try{return sessionIdentity(auth,SESSION_SECRET!);}catch(e){throw new UnauthorizedException((e as Error).message);}}
 async function agreed(auth?:string){const id=identity(auth);const user=await db.user.findUnique({where:{id},select:{agreementVersion:true,agreementAcceptedAt:true}});if(user?.agreementVersion!==AGREEMENT_VERSION||!user.agreementAcceptedAt)throw new ForbiddenException({code:'AGREEMENT_REQUIRED',message:'Примите пользовательское соглашение, чтобы продолжить.',version:AGREEMENT_VERSION});return id;}
-async function participating(auth?:string){const id=await agreed(auth);if(!await db.offerAcceptance.findUnique({where:{userId_version:{userId:id,version:OFFER_VERSION}}}))throw new ForbiddenException({code:'OFFER_REQUIRED',message:'Примите актуальную публичную оферту, чтобы продолжить.',version:OFFER_VERSION});return id;}
-async function participatingOwner(auth?:string){const id=await participating(auth);if(id!==OWNER_TELEGRAM_ID)throw new ForbiddenException();return id;}
+async function legacyOfferAccepted(auth?:string){const id=await agreed(auth);if(!await db.offerAcceptance.findUnique({where:{userId_version:{userId:id,version:OFFER_VERSION}}}))throw new ForbiddenException({code:'OFFER_REQUIRED',message:'Примите опубликованную публичную оферту.',version:OFFER_VERSION});return id;}
+async function owner(auth?:string){const id=await agreed(auth);if(id!==OWNER_TELEGRAM_ID)throw new ForbiddenException();return id;}
 function field(body:Record<string,unknown>,key:string,max:number,min=1) {const value=body?.[key];if(typeof value!=='string'||value.trim().length<min||value.length>max)throw new BadRequestException(`Проверьте поле ${key}.`);return value.trim();}
 function uuid(value:string) {if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value))throw new BadRequestException('Некорректный идентификатор.');return value;}
 function presentRequest<T extends {isTestOrder:boolean}>(row:T){return {...row,isTestOrder:undefined};}
@@ -44,7 +46,7 @@ async function telegram(method:string,body:unknown){
 }
 @Controller('api')
 class Api {
-  @Get('offer') offer(){return {number:OFFER_NUMBER,version:OFFER_VERSION,publishedAt:OFFER_PUBLISHED_AT,signedAt:OFFER_SIGNED_AT,documentSha256:OFFER_DOCUMENT_SHA256,tariffs:offerTariffs,paymentsEnabled:tonConfig.enabled,accrualEnabled:false,compoundEnabled:false,currency:'USDT'};}
+  @Get('offer') offer(){return {number:OFFER_NUMBER,version:OFFER_VERSION,publishedAt:OFFER_PUBLISHED_AT,signedAt:OFFER_SIGNED_AT,documentSha256:OFFER_DOCUMENT_SHA256,tariffs:offerTariffs,paymentsEnabled:tonConfig.enabled,financialOffer:financialOffer(),accrualEnabled:financialFlag('ACCRUAL'),compoundEnabled:financialFlag('COMPOUND'),currency:'USDT'};}
   @Post('auth/browser/start') async browserStart(@Req() req:FastifyRequest){
     const bot=process.env.BOT_USERNAME||'';if(!/^[a-zA-Z0-9_]{5,32}$/.test(bot))throw new ServiceUnavailableException('Бот для входа ещё не настроен.');
     const ipHash=createHmac('sha256',SESSION_SECRET!).update(req.ip).digest('hex');
@@ -59,19 +61,23 @@ class Api {
   @Get('v1/market') async market(@QueryParam('category') category?:string,@QueryParam('sort') sort?:string){
     let q;try{q=catalogueQuery(category,sort);}catch(e){throw new BadRequestException((e as Error).message);}
     const rows=await db.$queryRawUnsafe<CatalogRow[]>(q.sql,...q.params);
-    return {version:MARKET_VERSION,nodes:rows.map(present),purchasesEnabled:PURCHASES_ENABLED,updatedAt:new Date().toISOString()};
+    return {version:MARKET_VERSION,nodes:rows.map(present),purchasesEnabled:financialFlag('PURCHASES')&&process.env.FINANCIAL_PUBLIC_ACCESS==='true',updatedAt:new Date().toISOString()};
   }
   @Get('v1/market/leases') async leases(@Headers('authorization') auth:string){
-    return db.userLease.findMany({where:{userId:await participating(auth)},orderBy:{createdAt:'desc'},take:100});
+    return (await db.userLease.findMany({where:{userId:await agreed(auth)},include:{node:{select:{name:true}}},orderBy:{createdAt:'desc'},take:100})).map(presentLease);
   }
   @Get('v1/market/:id') async marketDetail(@Param('id') id:string){
     const rows=await db.$queryRawUnsafe<CatalogRow[]>('SELECT * FROM gpu_catalog WHERE id=$1 AND is_active=TRUE',id);
     if(!rows.length)throw new NotFoundException('Нода не найдена.');return present(rows[0]);
   }
-  @Post('v1/market/buy') async buy(@Headers('authorization') auth:string){
-    await participating(auth);
-    throw new ServiceUnavailableException({code:'PAYMENTS_DISABLED',message:'Внутренние списания выключены. Сначала будет подключено подтверждённое пополнение, затем заказ тарифа.'});
+  @Post('v1/market/buy') async buy(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){
+    return purchase(db,await agreed(auth),body);
   }
+  @Get('v1/leases/:id/unbond/quote') async unbondQuote(@Headers('authorization') auth:string,@Param('id') id:string){return quoteUnbond(db,await agreed(auth),leaseId(id));}
+  @Post('v1/leases/:id/unbond') async earlyUnbond(@Headers('authorization') auth:string,@Param('id') id:string,@Body() body:Record<string,unknown>){return unbond(db,await agreed(auth),leaseId(id),body);}
+  @Get('v1/admin/leases') async adminLeases(@Headers('authorization') auth:string,@QueryParam('page') page?:string){await owner(auth);const n=this.pageNumber(page);const rows=await db.userLease.findMany({include:{user:{select:{id:true,name:true,username:true}},node:{select:{name:true}},requests:{select:{paymentStatus:true,decision:true,closureReason:true}}},orderBy:{createdAt:'desc'},skip:n*30,take:30});return {items:rows.map(row=>({...presentLease(row),user:row.user,request:row.requests[0]||null})),page:n};}
+  @Post('v1/admin/leases/:id/activate') async activateLease(@Headers('authorization') auth:string,@Param('id') id:string){return activate(db,await owner(auth),leaseId(id));}
+  @Post('v1/admin/leases/:id/reject') async rejectLease(@Headers('authorization') auth:string,@Param('id') id:string,@Body() body:Record<string,unknown>){return rejectProvisioning(db,await owner(auth),leaseId(id),field(body,'reason',1000,3));}
   @Post('telegram/webhook') async webhook(@Headers('x-telegram-bot-api-secret-token') secret:string,@Body() update:any){
     if(!validWebhook(secret,process.env.BOT_WEBHOOK_SECRET))throw new UnauthorizedException();
     if(!Number.isSafeInteger(update?.update_id)||update.update_id<0)throw new BadRequestException();
@@ -136,9 +142,13 @@ class Api {
     const ordered=leases.some(l=>l.nodeId===selected?.nodeId&&['PROVISIONING','ACTIVE','OVERCLOCKED','EXPIRED'].includes(l.status));
     const pendingOrder=requests.some(r=>!r.isTestOrder&&r.nodeId===selected?.nodeId&&['REQUESTED','REVIEWED'].includes(r.status));
     const funded=Boolean(selected)&&balanceMicros>=BigInt(selected!.depositUsdt)*1000000n;
-    const epochComplete=leases.some(l=>l.status==='EXPIRED'||new Date(l.expiresAt)<=new Date());
+    const epochComplete=leases.some(l=>['EXPIRED','COMPLETED','EARLY_UNBONDED'].includes(l.status));
+    const newOffer=financialOffer();
+    const newAcceptance=newOffer?await db.offerAcceptance.findUnique({where:{userId_version:{userId:id,version:newOffer.version}}}):null;
+    const lockedBase=leases.filter(l=>l.status==='ACTIVE'&&l.mode==='BASE').reduce((sum,l)=>sum+(l.principalMicros||0n),0n);
+    const lockedCompound=leases.filter(l=>l.status==='ACTIVE'&&l.mode==='COMPOUND').reduce((sum,l)=>sum+(l.compoundPrincipalMicros||l.principalMicros||0n),0n);
     const referralItems=refs.map(r=>{const active=Boolean(r.leases.length),selectedTariff=Boolean(r.selectedTariffId),offerAccepted=Boolean(r.offerAcceptances.length);return {id:createHmac('sha256',SESSION_SECRET!).update('ref:'+r.id).digest('hex').slice(0,12),label:'Участник '+createHmac('sha256',SESSION_SECRET!).update(r.id).digest('hex').slice(0,4).toUpperCase(),stage:active?'ACTIVE':selectedTariff?'TARIFF_SELECTED':offerAccepted?'OFFER_ACCEPTED':'REGISTERED',joinedAt:r.createdAt};});
-    return {user:{id:user.id,name:user.name,username:user.username,createdAt:user.createdAt,isOwner:id===OWNER_TELEGRAM_ID,preferredLanguage:user.preferredLanguage},agreement:{version:AGREEMENT_VERSION,accepted,acceptedAt:accepted?user.agreementAcceptedAt:null},offer:{number:OFFER_NUMBER,version:OFFER_VERSION,documentSha256:OFFER_DOCUMENT_SHA256,accepted:Boolean(offerAcceptance),acceptedAt:offerAcceptance?.acceptedAt||null},balance:microsToDecimal(balanceMicros),earnedToday:null,selectedTariff:selected?{...selected,selectedAt:user.selectedTariffAt}:null,nextAction:nextAccountAction({selected,balanceMicros,requests,leases}),journey:journey({selected:Boolean(selected),funded,ordered,epochComplete,pendingOrder}),requests:requests.map(presentRequest),tickets,notifications:{unreadSupport,unreadOrders:requests.filter(r=>!r.isTestOrder&&r.userUnread).length,unread:unreadNotifications},activeNodes:leases,referrals:{total:referralItems.length,active:referralItems.filter(r=>r.stage==='ACTIVE').length,items:referralItems,rewardConfigured:false},entries:entries.map(e=>({...e,amountMicros:undefined,amount:microsToDecimal(e.amountMicros)})),paymentsEnabled:tonConfig.enabled,accrualEnabled:false,updatedAt:new Date().toISOString()};
+    return {user:{id:user.id,name:user.name,username:user.username,createdAt:user.createdAt,isOwner:id===OWNER_TELEGRAM_ID,preferredLanguage:user.preferredLanguage},agreement:{version:AGREEMENT_VERSION,accepted,acceptedAt:accepted?user.agreementAcceptedAt:null},offer:{number:OFFER_NUMBER,version:OFFER_VERSION,documentSha256:OFFER_DOCUMENT_SHA256,accepted:Boolean(offerAcceptance),acceptedAt:offerAcceptance?.acceptedAt||null},financialOffer:newOffer?{...newOffer,accepted:newAcceptance?.documentSha256===newOffer.sha256,acceptedAt:newAcceptance?.acceptedAt||null}:null,balance:microsToDecimal(balanceMicros),lockedBase:microsToDecimal(lockedBase),lockedCompound:microsToDecimal(lockedCompound),earnedToday:null,selectedTariff:selected?{...selected,selectedAt:user.selectedTariffAt}:null,nextAction:nextAccountAction({selected,balanceMicros,requests,leases,purchasesEnabled:financialFlag('PURCHASES')&&financialAccess(id),currentOfferAccepted:Boolean(newAcceptance)}),journey:journey({selected:Boolean(selected),funded,ordered,epochComplete,pendingOrder,purchaseEnabled:financialFlag('PURCHASES')&&financialAccess(id)}),requests:requests.map(presentRequest),tickets,notifications:{unreadSupport,unreadOrders:requests.filter(r=>!r.isTestOrder&&r.userUnread).length,unread:unreadNotifications},activeNodes:leases.map(presentLease),referrals:{total:referralItems.length,active:referralItems.filter(r=>r.stage==='ACTIVE').length,items:referralItems,rewardConfigured:false},entries:entries.map(e=>({...e,amountMicros:undefined,amount:microsToDecimal(e.amountMicros)})),paymentsEnabled:tonConfig.enabled,accrualEnabled:financialFlag('ACCRUAL')&&financialAccess(id),compoundEnabled:financialFlag('COMPOUND')&&financialAccess(id),purchasesEnabled:financialFlag('PURCHASES')&&financialAccess(id),updatedAt:new Date().toISOString()};
   }
   @Post('agreement/accept') async acceptAgreement(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){
     const id=identity(auth),version=field(body,'version',32);if(version!==AGREEMENT_VERSION)throw new BadRequestException('Версия соглашения устарела. Обновите приложение.');
@@ -150,13 +160,31 @@ class Api {
     const clientHash=createHmac('sha256',SESSION_SECRET!).update(`${req.ip}\n${String(req.headers['user-agent']||'')}`).digest('hex');
     return db.$transaction(async tx=>{await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${userId}, 88))`;const current=await tx.offerAcceptance.findUnique({where:{userId_version:{userId,version}}});if(current)return {version,accepted:true,acceptedAt:current.acceptedAt};const row=await tx.offerAcceptance.create({data:{userId,version,documentSha256,clientHash}});await tx.audit.create({data:{actorId:userId,action:'PUBLIC_OFFER_ACCEPTED',targetId:version}});return {version,accepted:true,acceptedAt:row.acceptedAt};});
   }
+  @Get('v1/financial-offer') async currentFinancialOffer(@Headers('authorization') auth:string){
+    const userId=await agreed(auth),offer=financialOffer();
+    if(!offer)return {available:false};
+    const acceptance=await db.offerAcceptance.findUnique({where:{userId_version:{userId,version:offer.version}}});
+    return {available:true,...offer,accepted:acceptance?.documentSha256===offer.sha256,acceptedAt:acceptance?.acceptedAt||null};
+  }
+  @Post('v1/financial-offer/accept') async acceptFinancialOffer(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>,@Req() req:FastifyRequest){
+    const userId=await agreed(auth),offer=financialOffer();
+    if(!offer)throw new ServiceUnavailableException({code:'CURRENT_OFFER_REQUIRED',message:'Новая редакция ожидает публикации.'});
+    if(body.version!==offer.version||body.documentSha256!==offer.sha256||body.readConfirmed!==true)throw new BadRequestException('Оферта изменилась или не прочитана полностью. Обновите приложение.');
+    const clientHash=createHmac('sha256',SESSION_SECRET!).update(`${req.ip}\n${String(req.headers['user-agent']||'')}`).digest('hex');
+    return db.$transaction(async tx=>{await tx.$queryRaw`SELECT id FROM "User" WHERE id=${userId} FOR UPDATE`;
+      const prior=await tx.offerAcceptance.findUnique({where:{userId_version:{userId,version:offer.version}}});
+      if(prior){if(prior.documentSha256!==offer.sha256)throw new BadRequestException('Редакция документа изменилась.');return {accepted:true,version:offer.version,acceptedAt:prior.acceptedAt};}
+      const row=await tx.offerAcceptance.create({data:{userId,version:offer.version,documentSha256:offer.sha256,clientHash}});
+      await tx.audit.create({data:{actorId:userId,action:'FINANCIAL_OFFER_ACCEPTED',targetId:offer.version}});
+      return {accepted:true,version:offer.version,acceptedAt:row.acceptedAt};});
+  }
   @Post('profile/tariff') async selectTariff(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){
-    const userId=await participating(auth),nodeId=field(body,'nodeId',64),known=offerTariffs.find(t=>t.nodeId===nodeId);
+    const userId=await legacyOfferAccepted(auth),nodeId=field(body,'nodeId',64),known=offerTariffs.find(t=>t.nodeId===nodeId);
     if(!known||!known.available)throw new BadRequestException('Этот тариф пока недоступен для выбора.');
     return db.$transaction(async tx=>{await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${userId}, 89))`;if(await tx.userLease.count({where:{userId,status:{in:['PROVISIONING','ACTIVE','OVERCLOCKED']}}})||await tx.rentalRequest.count({where:{userId,isTestOrder:false,status:{in:['REQUESTED','REVIEWED']}}}))throw new BadRequestException('Дождитесь решения по текущему заказу.');const current=await tx.user.findUnique({where:{id:userId},select:{selectedTariffId:true,selectedTariffAt:true}});if(!current)throw new UnauthorizedException();if(current.selectedTariffId===nodeId)return {selected:true,tariff:known,selectedAt:current.selectedTariffAt};const selectedAt=new Date();await tx.user.update({where:{id:userId},data:{selectedTariffId:nodeId,selectedTariffAt:selectedAt}});await tx.audit.create({data:{actorId:userId,action:'TARIFF_SELECTED',targetId:nodeId}});return {selected:true,tariff:known,selectedAt};});
   }
   @Post('requests') async request(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){
-    const id=await participating(auth), nodeId=field(body,'nodeId',64),profile='MANAGED',workload='Распределение мощностей и задач выполняет сервис AetherMind.',key=uuid(field(body,'idempotencyKey',36));
+    const id=await legacyOfferAccepted(auth), nodeId=field(body,'nodeId',64),profile='MANAGED',workload='Распределение мощностей и задач выполняет сервис AetherMind.',key=uuid(field(body,'idempotencyKey',36));
     const marketNode=await db.gpuCatalog.findUnique({where:{id:nodeId}});
     const eligible=marketNode?marketNode.isActive&&!marketNode.isExperimental&&(!marketNode.supplyKnown||marketNode.availableSupply>0):catalog.some(n=>n.id===nodeId&&n.status==='ON_REQUEST');
     if(!eligible)throw new BadRequestException('Нода недоступна.');
@@ -210,28 +238,28 @@ class Api {
     const userId=await agreed(auth),id=uuid(target),result=await db.ticket.updateMany({where:{id,userId},data:{userUnread:false}});
     if(!result.count)throw new NotFoundException('Обращение не найдено.');return {read:true};
   }
-  @Post('payments') async payment(@Headers('authorization') auth:string){await participating(auth);throw new ServiceUnavailableException('Для пополнения USDT TON используйте TON Connect в разделе «Кошелёк». Не переводите средства по реквизитам из сообщений.');}
-  @Post('withdrawals') async withdrawal(@Headers('authorization') auth:string){await participating(auth);throw new ServiceUnavailableException('Автоматический вывод отключён. Создайте заявку в разделе «Финансы».');}
-  @Get('v1/notifications') async notifications(@Headers('authorization') auth:string){const userId=await participating(auth);const [items,unread]=await Promise.all([db.notification.findMany({where:{userId},orderBy:[{createdAt:'desc'},{id:'desc'}],take:100,select:{id:true,type:true,title:true,message:true,referenceType:true,referenceId:true,isRead:true,createdAt:true}}),db.notification.count({where:{userId,isRead:false}})]);return {items,unread};}
-  @Post('v1/notifications/read-all') async readNotifications(@Headers('authorization') auth:string){const userId=await participating(auth);await db.notification.updateMany({where:{userId,isRead:false},data:{isRead:true}});return {read:true};}
-  @Post('v1/notifications/:id/read') async readNotification(@Headers('authorization') auth:string,@Param('id') target:string){const userId=await participating(auth),id=uuid(target);const result=await db.notification.updateMany({where:{id,userId},data:{isRead:true}});if(!result.count)throw new NotFoundException('Уведомление не найдено.');return {read:true};}
-  @Post('v1/withdrawals') async createWithdrawal(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){return createWithdrawal(db,await participating(auth),body);}
-  @Get('v1/withdrawals') async withdrawals(@Headers('authorization') auth:string){const userId=await participating(auth);return {items:(await db.withdrawalRequest.findMany({where:{userId},orderBy:[{createdAt:'desc'},{id:'desc'}],take:50})).map(presentWithdrawal)};}
-  @Get('v1/withdrawals/:id') async withdrawalDetail(@Headers('authorization') auth:string,@Param('id') target:string){const userId=await participating(auth);const row=await db.withdrawalRequest.findFirst({where:{id:uuid(target),userId}});if(!row)throw new NotFoundException('Заявка не найдена.');return presentWithdrawal(row);}
-  @Post('v1/withdrawals/:id/cancel') async cancelWithdrawal(@Headers('authorization') auth:string,@Param('id') target:string){return updateWithdrawal(db,await participating(auth),uuid(target),{status:'CANCELLED'},false);}
-  @Get('v1/admin/withdrawals') async ownerWithdrawals(@Headers('authorization') auth:string,@QueryParam('page') page?:string){await participatingOwner(auth);const n=this.pageNumber(page),where={};const [rows,total]=await Promise.all([db.withdrawalRequest.findMany({where,include:{user:{select:{id:true,name:true,username:true}}},orderBy:[{createdAt:'desc'},{id:'desc'}],skip:n*30,take:30}),db.withdrawalRequest.count({where})]);return {items:rows.map(row=>({...presentWithdrawal(row),user:row.user})),page:n,total,hasMore:(n+1)*30<total};}
-  @Get('v1/admin/withdrawals/:id') async ownerWithdrawal(@Headers('authorization') auth:string,@Param('id') target:string){await participatingOwner(auth);const row=await db.withdrawalRequest.findUnique({where:{id:uuid(target)},include:{user:{select:{id:true,name:true,username:true}}}});if(!row)throw new NotFoundException();return {...presentWithdrawal(row),user:row.user};}
-  @Patch('v1/admin/withdrawals/:id') async reviewWithdrawal(@Headers('authorization') auth:string,@Param('id') target:string,@Body() body:Record<string,unknown>){return updateWithdrawal(db,await participatingOwner(auth),uuid(target),body,true);}
-  @Get('v1/activity') async unifiedActivity(@Headers('authorization') auth:string,@QueryParam('type') type?:string){return activity(db,await participating(auth),type||'ALL');}
-  @Get('v1/status') async status(@Headers('authorization') auth:string){await participating(auth);const [cursor,relay]=await Promise.all([db.tonWatcherCursor.findUnique({where:{id:'TON_USDT'}}),gasless.provider.enabled?gasless.provider.relay().catch(()=>null):Promise.resolve(null)]);const fresh=Boolean(cursor&&Date.now()-cursor.updatedAt.getTime()<180000);return {platform:'OPERATIONAL',tonDeposits:!tonConfig.enabled?'PAUSED':!fresh?'DEGRADED':tonConfig.access==='canary'?'LIMITED':'OPERATIONAL',gasless:!gasless.provider.enabled?'PAUSED':!relay?'DEGRADED':tonConfig.gaslessSmokeOwnerOnly?'LIMITED':'OPERATIONAL',withdrawals:'MANUAL',orders:'LIMITED',build:process.env.APP_COMMIT||'local',network:'TON Mainnet'};}
-  @Get('v1/admin/operations') async operations(@Headers('authorization') auth:string){await participatingOwner(auth);const cursor=await db.tonWatcherCursor.findUnique({where:{id:'TON_USDT'}});const checks=await Promise.allSettled([tonConfig.apiKey?tonCenter.jettonWallet(tonConfig.treasury):Promise.reject(),gasless.provider.enabled?gasless.provider.relay():Promise.reject(),process.env.BOT_TOKEN?fetch('https://api.telegram.org/bot'+process.env.BOT_TOKEN+'/getWebhookInfo',{signal:AbortSignal.timeout(2500)}).then(r=>r.ok):Promise.reject()]);return {backend:'OPERATIONAL',database:'OPERATIONAL',tonCenter:checks[0].status==='fulfilled'?'OPERATIONAL':'UNAVAILABLE',tonApi:checks[1].status==='fulfilled'&&Boolean(checks[1].value)?'OPERATIONAL':'UNAVAILABLE',telegram:checks[2].status==='fulfilled'&&checks[2].value?'OPERATIONAL':'UNAVAILABLE',depositWatcher:cursor&&Date.now()-cursor.updatedAt.getTime()<180000?'OPERATIONAL':'DEGRADED',lastReconciliation:cursor?.updatedAt||null,gasless:gasless.provider.enabled?(tonConfig.gaslessSmokeOwnerOnly?'CANARY':'PUBLIC'):'DISABLED',depositMode:tonConfig.access,withdrawalMode:'MANUAL',orders:'LIMITED',accrual:'DISABLED',build:process.env.APP_COMMIT||'local',uptimeSeconds:Math.floor(process.uptime())};}
+  @Post('payments') async payment(@Headers('authorization') auth:string){await agreed(auth);throw new ServiceUnavailableException('Для пополнения USDT TON используйте TON Connect в разделе «Кошелёк». Не переводите средства по реквизитам из сообщений.');}
+  @Post('withdrawals') async withdrawal(@Headers('authorization') auth:string){await agreed(auth);throw new ServiceUnavailableException('Автоматический вывод отключён. Создайте заявку в разделе «Финансы».');}
+  @Get('v1/notifications') async notifications(@Headers('authorization') auth:string){const userId=await agreed(auth);const [items,unread]=await Promise.all([db.notification.findMany({where:{userId},orderBy:[{createdAt:'desc'},{id:'desc'}],take:100,select:{id:true,type:true,title:true,message:true,referenceType:true,referenceId:true,isRead:true,createdAt:true}}),db.notification.count({where:{userId,isRead:false}})]);return {items,unread};}
+  @Post('v1/notifications/read-all') async readNotifications(@Headers('authorization') auth:string){const userId=await agreed(auth);await db.notification.updateMany({where:{userId,isRead:false},data:{isRead:true}});return {read:true};}
+  @Post('v1/notifications/:id/read') async readNotification(@Headers('authorization') auth:string,@Param('id') target:string){const userId=await agreed(auth),id=uuid(target);const result=await db.notification.updateMany({where:{id,userId},data:{isRead:true}});if(!result.count)throw new NotFoundException('Уведомление не найдено.');return {read:true};}
+  @Post('v1/withdrawals') async createWithdrawal(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){return createWithdrawal(db,await agreed(auth),body);}
+  @Get('v1/withdrawals') async withdrawals(@Headers('authorization') auth:string){const userId=await agreed(auth);return {items:(await db.withdrawalRequest.findMany({where:{userId},orderBy:[{createdAt:'desc'},{id:'desc'}],take:50})).map(presentWithdrawal)};}
+  @Get('v1/withdrawals/:id') async withdrawalDetail(@Headers('authorization') auth:string,@Param('id') target:string){const userId=await agreed(auth);const row=await db.withdrawalRequest.findFirst({where:{id:uuid(target),userId}});if(!row)throw new NotFoundException('Заявка не найдена.');return presentWithdrawal(row);}
+  @Post('v1/withdrawals/:id/cancel') async cancelWithdrawal(@Headers('authorization') auth:string,@Param('id') target:string){return updateWithdrawal(db,await agreed(auth),uuid(target),{status:'CANCELLED'},false);}
+  @Get('v1/admin/withdrawals') async ownerWithdrawals(@Headers('authorization') auth:string,@QueryParam('page') page?:string){await owner(auth);const n=this.pageNumber(page),where={};const [rows,total]=await Promise.all([db.withdrawalRequest.findMany({where,include:{user:{select:{id:true,name:true,username:true}}},orderBy:[{createdAt:'desc'},{id:'desc'}],skip:n*30,take:30}),db.withdrawalRequest.count({where})]);return {items:rows.map(row=>({...presentWithdrawal(row),user:row.user})),page:n,total,hasMore:(n+1)*30<total};}
+  @Get('v1/admin/withdrawals/:id') async ownerWithdrawal(@Headers('authorization') auth:string,@Param('id') target:string){await owner(auth);const row=await db.withdrawalRequest.findUnique({where:{id:uuid(target)},include:{user:{select:{id:true,name:true,username:true}}}});if(!row)throw new NotFoundException();return {...presentWithdrawal(row),user:row.user};}
+  @Patch('v1/admin/withdrawals/:id') async reviewWithdrawal(@Headers('authorization') auth:string,@Param('id') target:string,@Body() body:Record<string,unknown>){return updateWithdrawal(db,await owner(auth),uuid(target),body,true);}
+  @Get('v1/activity') async unifiedActivity(@Headers('authorization') auth:string,@QueryParam('type') type?:string){return activity(db,await agreed(auth),type||'ALL');}
+  @Get('v1/status') async status(@Headers('authorization') auth:string){await agreed(auth);const [cursor,relay]=await Promise.all([db.tonWatcherCursor.findUnique({where:{id:'TON_USDT'}}),gasless.provider.enabled?gasless.provider.relay().catch(()=>null):Promise.resolve(null)]);const fresh=Boolean(cursor&&Date.now()-cursor.updatedAt.getTime()<180000);return {platform:'OPERATIONAL',tonDeposits:!tonConfig.enabled?'PAUSED':!fresh?'DEGRADED':tonConfig.access==='canary'?'LIMITED':'OPERATIONAL',gasless:!gasless.provider.enabled?'PAUSED':!relay?'DEGRADED':tonConfig.gaslessSmokeOwnerOnly?'LIMITED':'OPERATIONAL',withdrawals:'MANUAL',orders:financialFlag('PURCHASES')?process.env.FINANCIAL_PUBLIC_ACCESS==='true'?'OPERATIONAL':'LIMITED':'PAUSED',accrual:financialFlag('ACCRUAL')?'OPERATIONAL':'PAUSED',build:process.env.APP_COMMIT||'local',network:'TON Mainnet'};}
+  @Get('v1/admin/operations') async operations(@Headers('authorization') auth:string){await owner(auth);const cursor=await db.tonWatcherCursor.findUnique({where:{id:'TON_USDT'}});const lastEpochAccrual=await db.leaseAccrual.findFirst({orderBy:{createdAt:'desc'},select:{createdAt:true}});const checks=await Promise.allSettled([tonConfig.apiKey?tonCenter.jettonWallet(tonConfig.treasury):Promise.reject(),gasless.provider.enabled?gasless.provider.relay():Promise.reject(),process.env.BOT_TOKEN?fetch('https://api.telegram.org/bot'+process.env.BOT_TOKEN+'/getWebhookInfo',{signal:AbortSignal.timeout(2500)}).then(r=>r.ok):Promise.reject()]);return {backend:'OPERATIONAL',database:'OPERATIONAL',tonCenter:checks[0].status==='fulfilled'?'OPERATIONAL':'UNAVAILABLE',tonApi:checks[1].status==='fulfilled'&&Boolean(checks[1].value)?'OPERATIONAL':'UNAVAILABLE',telegram:checks[2].status==='fulfilled'&&checks[2].value?'OPERATIONAL':'UNAVAILABLE',depositWatcher:cursor&&Date.now()-cursor.updatedAt.getTime()<180000?'OPERATIONAL':'DEGRADED',lastReconciliation:cursor?.updatedAt||null,gasless:gasless.provider.enabled?(tonConfig.gaslessSmokeOwnerOnly?'CANARY':'PUBLIC'):'DISABLED',depositMode:tonConfig.access,withdrawalMode:'MANUAL',orders:financialFlag('PURCHASES')?(process.env.FINANCIAL_PUBLIC_ACCESS==='true'?'PUBLIC':'CANARY'):'PAUSED',accrual:financialFlag('ACCRUAL')?'ENABLED':'DISABLED',financialOfferReady:Boolean(financialOffer()),financialFlags:{purchases:financialFlag('PURCHASES'),activation:financialFlag('EPOCH_ACTIVATION'),accrual:financialFlag('ACCRUAL'),compound:financialFlag('COMPOUND'),earlyUnbonding:financialFlag('EARLY_UNBONDING'),publicAccess:process.env.FINANCIAL_PUBLIC_ACCESS==='true'},lastEpochAccrual:lastEpochAccrual?.createdAt||null,build:process.env.APP_COMMIT||'local',uptimeSeconds:Math.floor(process.uptime())};}
   @Post('v1/data-requests') async createDataRequest(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){return requestData(db,await agreed(auth),body.kind);}
   @Get('v1/data-requests') async dataRequests(@Headers('authorization') auth:string){const userId=await agreed(auth);return {items:await db.dataRequest.findMany({where:{userId},orderBy:{createdAt:'desc'},take:20})};}
-  @Get('v1/admin/data-requests') async ownerDataRequests(@Headers('authorization') auth:string,@QueryParam('page') page?:string){await participatingOwner(auth);const n=this.pageNumber(page);return {items:await db.dataRequest.findMany({include:{user:{select:{id:true,name:true,username:true}}},orderBy:{createdAt:'desc'},skip:n*30,take:30}),page:n};}
-  @Post('v1/ton/proof/payload') async tonPayload(@Headers('authorization') auth:string){return deposits.challenge(await participating(auth));}
-  @Post('v1/ton/proof/verify') async tonVerify(@Headers('authorization') auth:string,@Body() body:any){return deposits.verify(await participating(auth),body);}
+  @Get('v1/admin/data-requests') async ownerDataRequests(@Headers('authorization') auth:string,@QueryParam('page') page?:string){await owner(auth);const n=this.pageNumber(page);return {items:await db.dataRequest.findMany({include:{user:{select:{id:true,name:true,username:true}}},orderBy:{createdAt:'desc'},skip:n*30,take:30}),page:n};}
+  @Post('v1/ton/proof/payload') async tonPayload(@Headers('authorization') auth:string){return deposits.challenge(await agreed(auth));}
+  @Post('v1/ton/proof/verify') async tonVerify(@Headers('authorization') auth:string,@Body() body:any){return deposits.verify(await agreed(auth),body);}
   @Get('v1/ton/health') async tonHealth(@Headers('authorization') auth:string){
-    await participatingOwner(auth);
+    await owner(auth);
     let treasuryJettonWallet:string|null=null;
     if(tonConfig.apiKey)try{treasuryJettonWallet=(await tonCenter.jettonWallet(tonConfig.treasury)).toRawString();}catch{}
     let treasuryGramNano:string|null=null;
@@ -242,23 +270,23 @@ class Api {
     if(gasless.provider.enabled)try{relay=(await gasless.provider.relay())?.toRawString()||null;}catch{}
     return {network:'mainnet',depositAccess:tonConfig.access,standardAttachNano:tonConfig.attachAmount.toString(),notificationForwardNano:tonConfig.notificationForwardNano.toString(),tonCenter:{configured:Boolean(tonConfig.apiKey),reachable:Boolean(treasuryJettonWallet),indexed},tonApi:{configured:Boolean(tonConfig.tonApiKey),reachable:Boolean(relay),officialUsdtSupported:Boolean(relay)},gasless:{enabled:gasless.provider.enabled,rollout:tonConfig.gaslessSmokeOwnerOnly?'canary':'public'},treasuryJettonWallet,treasuryGramNano,minTreasuryGramNano:tonConfig.minTreasuryReserve.toString(),treasuryReady:treasuryGramNano!==null&&BigInt(treasuryGramNano)>=tonConfig.minTreasuryReserve,relay};
   }
-  @Get('v1/wallet') async tonWallet(@Headers('authorization') auth:string){const userId=await participating(auth);return {...await deposits.wallet(userId),gaslessAvailable:await gasless.availability(userId)};}
-  @Get('v1/wallet/transactions') async tonHistory(@Headers('authorization') auth:string){return {items:await deposits.list(await participating(auth))};}
-  @Post('v1/deposits') async createDeposit(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){return deposits.create(await participating(auth),body);}
-  @Post('v1/deposits/:id/gasless/estimate') async gaslessEstimate(@Headers('authorization') auth:string,@Param('id') id:string){return gasless.estimate(await participating(auth),uuid(id));}
-  @Post('v1/deposits/:id/gasless/send') async gaslessSend(@Headers('authorization') auth:string,@Param('id') id:string,@Body() body:Record<string,unknown>){return gasless.send(await participating(auth),uuid(id),body);}
-  @Get('v1/deposits') async listDeposits(@Headers('authorization') auth:string){return {items:await deposits.list(await participating(auth))};}
-  @Post('v1/deposits/:id/cancel') async cancelDeposit(@Headers('authorization') auth:string,@Param('id') id:string){return deposits.cancel(await participating(auth),uuid(id));}
-  @Get('v1/deposits/:id') async depositById(@Headers('authorization') auth:string,@Param('id') id:string){return deposits.get(await participating(auth),uuid(id));}
+  @Get('v1/wallet') async tonWallet(@Headers('authorization') auth:string){const userId=await agreed(auth);return {...await deposits.wallet(userId),gaslessAvailable:await gasless.availability(userId)};}
+  @Get('v1/wallet/transactions') async tonHistory(@Headers('authorization') auth:string){return {items:await deposits.list(await agreed(auth))};}
+  @Post('v1/deposits') async createDeposit(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){return deposits.create(await agreed(auth),body);}
+  @Post('v1/deposits/:id/gasless/estimate') async gaslessEstimate(@Headers('authorization') auth:string,@Param('id') id:string){return gasless.estimate(await agreed(auth),uuid(id));}
+  @Post('v1/deposits/:id/gasless/send') async gaslessSend(@Headers('authorization') auth:string,@Param('id') id:string,@Body() body:Record<string,unknown>){return gasless.send(await agreed(auth),uuid(id),body);}
+  @Get('v1/deposits') async listDeposits(@Headers('authorization') auth:string){return {items:await deposits.list(await agreed(auth))};}
+  @Post('v1/deposits/:id/cancel') async cancelDeposit(@Headers('authorization') auth:string,@Param('id') id:string){return deposits.cancel(await agreed(auth),uuid(id));}
+  @Get('v1/deposits/:id') async depositById(@Headers('authorization') auth:string,@Param('id') id:string){return deposits.get(await agreed(auth),uuid(id));}
   @Get('v1/admin/deposits') async adminDeposits(@Headers('authorization') auth:string,@QueryParam('page') page?:string,@QueryParam('status') status?:string){
-    await participatingOwner(auth);
+    await owner(auth);
     if(status&&!['PENDING','CANCELLED','DETECTED','CONFIRMED','CREDITED','EXPIRED','FAILED','REJECTED','MANUAL_REVIEW'].includes(status))throw new BadRequestException('Неверный статус.');
     return deposits.admin(this.pageNumber(page),status);
   }
-  @Get('v1/admin/deposits/unmatched') async adminUnmatched(@Headers('authorization') auth:string,@QueryParam('page') page?:string){await participatingOwner(auth);return deposits.adminUnmatched(this.pageNumber(page));}
-  @Get('v1/admin/deposits/:id') async adminDeposit(@Headers('authorization') auth:string,@Param('id') id:string){await participatingOwner(auth);return deposits.adminDetail(uuid(id));}
+  @Get('v1/admin/deposits/unmatched') async adminUnmatched(@Headers('authorization') auth:string,@QueryParam('page') page?:string){await owner(auth);return deposits.adminUnmatched(this.pageNumber(page));}
+  @Get('v1/admin/deposits/:id') async adminDeposit(@Headers('authorization') auth:string,@Param('id') id:string){await owner(auth);return deposits.adminDetail(uuid(id));}
   @Get('admin') async admin(@Headers('authorization') auth:string){
-    await participatingOwner(auth);
+    await owner(auth);
     const [users,requests,pendingPayments,tickets,unreadTickets,deposits]=await Promise.all([
       db.user.count(),
       db.rentalRequest.count({where:{status:{in:['REQUESTED','REVIEWED']}}}),
@@ -270,7 +298,7 @@ class Api {
     return {users,openRequests:requests,pendingPayments,openTickets:tickets,unreadTickets,confirmedDeposits:microsToDecimal(deposits._sum.amountMicros||0n)};
   }
   @Get('admin/users') async users(@Headers('authorization') auth:string,@QueryParam('page') page?:string,@QueryParam('q') q?:string){
-    await participatingOwner(auth);const pageNumber=this.pageNumber(page),skip=pageNumber*30,query=(q||'').trim();
+    await owner(auth);const pageNumber=this.pageNumber(page),skip=pageNumber*30,query=(q||'').trim();
     if(query.length>64)throw new BadRequestException('Слишком длинный запрос.');
     const where:any=query?{OR:[{id:{contains:query}},{name:{contains:query,mode:'insensitive'}},{username:{contains:query.replace(/^@/,''),mode:'insensitive'}}]}:{};
     const [rows,total]=await Promise.all([
@@ -289,7 +317,7 @@ class Api {
     return {items:rows.map(row=>({...row,invitedCount:referrals.get(row.id)||0,balance:microsToDecimal(balances.get(row.id)||0n),deposited:microsToDecimal(deposits.get(row.id)||0n)})),page:pageNumber,total,hasMore:skip+rows.length<total};
   }
   @Get('admin/users/:id') async userDetails(@Headers('authorization') auth:string,@Param('id') target:string,@QueryParam('refPage') refPage?:string){
-    await participatingOwner(auth);const id=this.telegramId(target),referralPage=this.pageNumber(refPage);
+    await owner(auth);const id=this.telegramId(target),referralPage=this.pageNumber(refPage);
     const user=await db.user.findUnique({where:{id},include:{selectedTariff:{select:{id:true,name:true,priceUsdt:true,contractDays:true}},offerAcceptances:{where:{version:OFFER_VERSION},select:{version:true,acceptedAt:true},take:1}}});
     if(!user)throw new NotFoundException('Пользователь не найден.');
     const [balance,deposits,invited,invitedCount,requests,leases,ticketTotal,ticketOpen]=await Promise.all([
@@ -306,7 +334,7 @@ class Api {
     return {user:{id:user.id,name:user.name,username:user.username,createdAt:user.createdAt,referrerId:user.referrerId},statistics:{invitedCount,deposited:microsToDecimal(deposits._sum.amountMicros||0n),balance:microsToDecimal(balance._sum.amountMicros||0n),tickets:ticketTotal,openTickets:ticketOpen},documents:{agreementAcceptedAt:user.agreementAcceptedAt,offerAcceptedAt:user.offerAcceptances[0]?.acceptedAt||null},selectedTariff:user.selectedTariff,invited,referrals:{page:referralPage,total:invitedCount,hasMore:(referralPage+1)*100<invitedCount},requests:requests.map(request=>(Object.assign({},presentRequest(request),{equipment:{id:request.nodeId,name:nodes.get(request.nodeId)||request.nodeId}}))),leases};
   }
   @Get('admin/requests') async requests(@Headers('authorization') auth:string,@QueryParam('page') page?:string,@QueryParam('status') status?:string,@QueryParam('payment') payment?:string){
-    await participatingOwner(auth);const pageNumber=this.pageNumber(page),skip=pageNumber*30;
+    await owner(auth);const pageNumber=this.pageNumber(page),skip=pageNumber*30;
     if(status&&!['REQUESTED','REVIEWED','CLOSED'].includes(status))throw new BadRequestException('Некорректный статус заявки.');
     if(payment&&!['WAITING','PAID'].includes(payment))throw new BadRequestException('Некорректный статус платежа.');
     const where={isTestOrder:false,...(status?{status}:{}),...(payment?{paymentStatus:payment}:{})};
@@ -315,7 +343,7 @@ class Api {
     return {items:rows.map(row=>(Object.assign({},presentRequest(row),{equipment:{id:row.nodeId,name:nodes.get(row.nodeId)||row.nodeId}}))),page:pageNumber,total,hasMore:skip+rows.length<total};
   }
   @Get('admin/tickets') async tickets(@Headers('authorization') auth:string,@QueryParam('page') page?:string,@QueryParam('status') status?:string,@QueryParam('category') category?:string){
-    await participatingOwner(auth);const pageNumber=this.pageNumber(page),skip=pageNumber*30;
+    await owner(auth);const pageNumber=this.pageNumber(page),skip=pageNumber*30;
     if(status&&!['OPEN','IN_PROGRESS','ANSWERED','CLOSED'].includes(status))throw new BadRequestException();
     if(category&&!['QUESTION','PAYMENT','WITHDRAWAL','ACCOUNT','WALLET','NODE','TECHNICAL','OTHER','COMPLAINT'].includes(category))throw new BadRequestException();
     const where={...(status?{status}:{}),...(category?{category}:{})};
@@ -326,21 +354,21 @@ class Api {
     return {items:rows,page:pageNumber,total,hasMore:skip+rows.length<total};
   }
   @Get('admin/tickets/:id') async ticketDetails(@Headers('authorization') auth:string,@Param('id') target:string){
-    await participatingOwner(auth);const id=uuid(target),ticket=await db.ticket.findUnique({where:{id},include:{user:{select:{id:true,name:true,username:true}},messages:{orderBy:[{createdAt:'desc'},{id:'desc'}],take:200}}});
+    await owner(auth);const id=uuid(target),ticket=await db.ticket.findUnique({where:{id},include:{user:{select:{id:true,name:true,username:true}},messages:{orderBy:[{createdAt:'desc'},{id:'desc'}],take:200}}});
     if(!ticket)throw new NotFoundException('Тикет не найден.');ticket.messages.reverse();return ticket;
   }
   @Post('admin/tickets/:id/read') async readAdminTicket(@Headers('authorization') auth:string,@Param('id') target:string){
-    await participatingOwner(auth);const id=uuid(target),result=await db.ticket.updateMany({where:{id},data:{ownerUnread:false}});if(!result.count)throw new NotFoundException('Тикет не найден.');return {read:true};
+    await owner(auth);const id=uuid(target),result=await db.ticket.updateMany({where:{id},data:{ownerUnread:false}});if(!result.count)throw new NotFoundException('Тикет не найден.');return {read:true};
   }
   @Post('admin/tickets/:id/messages') async ownerMessage(@Headers('authorization') auth:string,@Param('id') target:string,@Body() body:Record<string,unknown>){
-    const actorId=await participatingOwner(auth),id=uuid(target),message=field(body,'message',2000,2);return this.updateTicket(actorId,id,{status:'ANSWERED',reply:message});
+    const actorId=await owner(auth),id=uuid(target),message=field(body,'message',2000,2);return this.updateTicket(actorId,id,{status:'ANSWERED',reply:message});
   }
-  @Get('admin/audit') async audit(@Headers('authorization') auth:string,@QueryParam('page') page?:string){await participatingOwner(auth);const pageNumber=this.pageNumber(page);return {items:await db.audit.findMany({orderBy:[{createdAt:'desc'},{id:'desc'}],skip:pageNumber*30,take:30}),page:pageNumber};}
+  @Get('admin/audit') async audit(@Headers('authorization') auth:string,@QueryParam('page') page?:string){await owner(auth);const pageNumber=this.pageNumber(page);return {items:await db.audit.findMany({orderBy:[{createdAt:'desc'},{id:'desc'}],skip:pageNumber*30,take:30}),page:pageNumber};}
   private pageNumber(page?:string){if(page!==undefined&&!/^[0-9]{1,5}$/.test(page))throw new BadRequestException('Некорректная страница.');return Number(page||0);}
   private telegramId(value:string){if(!/^[1-9][0-9]{0,19}$/.test(value))throw new BadRequestException('Некорректный Telegram ID.');return value;}
   private async equipmentNames(ids:string[]){const unique=[...new Set(ids)];if(!unique.length)return new Map<string,string>();const nodes=await db.gpuCatalog.findMany({where:{id:{in:unique}},select:{id:true,name:true}});return new Map(nodes.map(node=>[node.id,node.name]));}
   @Patch('admin/requests/:id') async review(@Headers('authorization') auth:string,@Param('id') target:string,@Body() body:Record<string,unknown>){
-    const actorId=await participatingOwner(auth),id=uuid(target),status=field(body,'status',20);if(!['REVIEWED','CLOSED'].includes(status))throw new BadRequestException();
+    const actorId=await owner(auth),id=uuid(target),status=field(body,'status',20);if(!['REVIEWED','CLOSED'].includes(status))throw new BadRequestException();
     const decision=status==='CLOSED'?field(body,'decision',16):null,closureReason=status==='CLOSED'?field(body,'closureReason',1000,3):null;
     if(decision&&!['ACCEPTED','REJECTED'].includes(decision))throw new BadRequestException('Выберите принятие или отказ.');
     const peek=await db.rentalRequest.findUnique({where:{id},select:{userId:true,isTestOrder:true}});
@@ -348,12 +376,13 @@ class Api {
     return db.$transaction(async tx=>{
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${id}, 32))`;
       const current=await tx.rentalRequest.findUnique({where:{id}});if(!current)throw new NotFoundException();
+      if(current.leaseId)throw new BadRequestException('Оплаченный заказ обрабатывается в разделе Orders / Epochs.');
       if(current.status==='CLOSED'){if(status==='CLOSED'&&current.decision===decision&&current.closureReason===closureReason)return presentRequest(current);throw new BadRequestException('Заявка уже закрыта.');}
       const result=await tx.rentalRequest.update({where:{id},data:{status,decision,closureReason,closedAt:status==='CLOSED'?new Date():null,userUnread:status==='CLOSED'?true:undefined}});await tx.audit.create({data:{actorId,action:`REQUEST_${decision||status}`,targetId:id}});return presentRequest(result);
     });
   }
   @Patch('admin/tickets/:id') async reply(@Headers('authorization') auth:string,@Param('id') target:string,@Body() body:Record<string,unknown>){
-    const actorId=await participatingOwner(auth),id=uuid(target);return this.updateTicket(actorId,id,body);
+    const actorId=await owner(auth),id=uuid(target);return this.updateTicket(actorId,id,body);
   }
   private async updateTicket(actorId:string,id:string,body:Record<string,unknown>){
     const status=body.status===undefined?(body.reply===undefined?'IN_PROGRESS':'ANSWERED'):field(body,'status',20);

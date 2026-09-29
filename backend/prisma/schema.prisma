@@ -48,6 +48,8 @@ model RentalRequest {
   idempotencyKey String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  leaseId String? @unique @map("lease_id") @db.Uuid
+  lease UserLease? @relation(fields: [leaseId], references: [id])
   @@unique([userId, idempotencyKey])
   @@index([userId, createdAt])
   @@index([paymentStatus, status, createdAt])
@@ -101,6 +103,8 @@ model WithdrawalRequest {
   destinationAddress String @map("destination_address") @db.VarChar(70)
   amountMicros BigInt @map("amount_micros")
   feeMicros BigInt? @map("fee_micros")
+  platformFeeMicros BigInt? @map("platform_fee_micros")
+  networkFeeMicros BigInt? @map("network_fee_micros")
   netAmountMicros BigInt? @map("net_amount_micros")
   status String @default("REQUESTED") @db.VarChar(20)
   txHash String? @unique @map("tx_hash") @db.VarChar(64)
@@ -223,11 +227,51 @@ model UserLease {
   idempotencyKey String @map("idempotency_key") @db.Uuid
   status String @default("PROVISIONING")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(3)
   lastYieldCalc DateTime @default(now()) @map("last_yield_calc") @db.Timestamptz(3)
+  offerVersion String? @map("offer_version") @db.VarChar(64)
+  offerDocumentSha256 String? @map("offer_document_sha256") @db.VarChar(64)
+  mode String? @db.VarChar(12)
+  principalMicros BigInt? @map("principal_micros")
+  baseDailyRateBps Int? @map("base_daily_rate_bps")
+  compoundDailyRateBps Int? @map("compound_daily_rate_bps")
+  contractDays Int? @map("contract_days")
+  compoundCycleDays Int? @map("compound_cycle_days")
+  activatedAt DateTime? @map("activated_at") @db.Timestamptz(3)
+  epochEndsAt DateTime? @map("epoch_ends_at") @db.Timestamptz(3)
+  settledDays Int @default(0) @map("settled_days")
+  accrualRemainder Int @default(0) @map("accrual_remainder")
+  baseAccruedMicros BigInt @default(0) @map("base_accrued_micros")
+  compoundPrincipalMicros BigInt? @map("compound_principal_micros")
+  compoundProfitMicros BigInt @default(0) @map("compound_profit_micros")
+  currentCompoundBlock Int @default(0) @map("current_compound_block")
+  compoundBlockEndsAt DateTime? @map("compound_block_ends_at") @db.Timestamptz(3)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
+  earlyUnbondedAt DateTime? @map("early_unbonded_at") @db.Timestamptz(3)
+  unbondFeeMicros BigInt? @map("unbond_fee_micros")
+  supplyReleasedAt DateTime? @map("supply_released_at") @db.Timestamptz(3)
+  termsSnapshot Json? @map("terms_snapshot") @db.JsonB
+  requests RentalRequest[]
+  accruals LeaseAccrual[]
   @@unique([userId, idempotencyKey])
   @@index([userId, nodeId, status])
   @@map("user_leases")
+}
+
+model LeaseAccrual {
+  id String @id @default(uuid()) @db.Uuid
+  leaseId String @map("lease_id") @db.Uuid
+  lease UserLease @relation(fields: [leaseId], references: [id])
+  dayIndex Int @map("day_index")
+  mode String @db.VarChar(12)
+  openingPrincipalMicros BigInt @map("opening_principal_micros")
+  rateBps Int @map("rate_bps")
+  yieldMicros BigInt @map("yield_micros")
+  closingPrincipalMicros BigInt @map("closing_principal_micros")
+  compoundBlock Int @map("compound_block")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  @@unique([leaseId, dayIndex])
+  @@map("lease_accruals")
 }
 
 model TonWallet {

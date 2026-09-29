@@ -6,6 +6,7 @@ import {Icon} from './Icons';
 import OwnerDeposits from './OwnerDeposits';
 const OwnerWithdrawals=lazy(()=>import('./OwnerWithdrawals'));
 const OwnerOperations=lazy(()=>import('./OwnerOperations'));
+const OwnerLeases=lazy(()=>import('./OwnerLeases'));
 const supportCategories:Record<string,string>={QUESTION:'Вопрос',COMPLAINT:'Жалоба',PAYMENT:'Платёж',WITHDRAWAL:'Вывод',ACCOUNT:'Аккаунт',WALLET:'Кошелёк',NODE:'Нода',TECHNICAL:'Техническая проблема',OTHER:'Другое'};
 
 type Summary={users:number;openRequests:number;pendingPayments:number;openTickets:number;unreadTickets:number;confirmedDeposits:string};
@@ -33,7 +34,7 @@ export default function OwnerPanel({onRefresh}:{onRefresh:()=>Promise<void>}){
   try{
    const summaryPromise=api<Summary>('/admin');
    let data:Page<any>={items:[],page:0,total:0,hasMore:false};
-   if(section!=='overview'&&!['withdrawals','operations'].includes(section)){
+   if(section!=='overview'&&!['withdrawals','operations','leases'].includes(section)){
     const q=new URLSearchParams({page:String(page)});
     if(section==='users'&&submittedQuery)q.set('q',submittedQuery);
     if(section==='requests'){if(status)q.set('status',status);if(payment)q.set('payment',payment)}
@@ -80,9 +81,10 @@ export default function OwnerPanel({onRefresh}:{onRefresh:()=>Promise<void>}){
    <button onClick={()=>select('tickets')}><span>{t("Тикеты")}</span><b>{summary?.openTickets??'—'}</b><small>{summary?.unreadTickets??'—'} {t("непрочитано")}</small></button>
    <button onClick={()=>select('deposits')}><span>{t("Депозиты")}</span><b>{summary?money(summary.confirmedDeposits,locale):'—'}</b><small>{t("Открыть платежи TON")}</small></button>
   </div>
-  <div className="owner-tabs" role="tablist" aria-label={t("Разделы владельца")}>{[['overview','Обзор'],['users','Пользователи'],['requests','Заявки'],['deposits','Депозиты'],['withdrawals','Выводы'],['tickets','Тикеты'],['operations','Операции']].map(([id,label])=><button key={id} role="tab" disabled={busy} aria-selected={section===id} onClick={()=>select(id)}>{t(label)}{id==='tickets'&&Boolean(summary?.unreadTickets)&&<i>{summary!.unreadTickets}</i>}</button>)}</div>
+  <div className="owner-tabs" role="tablist" aria-label={t("Разделы владельца")}>{[['overview','Обзор'],['users','Пользователи'],['requests','Заявки'],['leases','Заказы и Epoch'],['deposits','Депозиты'],['withdrawals','Выводы'],['tickets','Тикеты'],['operations','Операции']].map(([id,label])=><button key={id} role="tab" disabled={busy} aria-selected={section===id} onClick={()=>select(id)}>{t(label)}{id==='tickets'&&Boolean(summary?.unreadTickets)&&<i>{summary!.unreadTickets}</i>}</button>)}</div>
   {section==='withdrawals'&&<Suspense fallback={<p role="status">{t('Загрузка…')}</p>}><OwnerWithdrawals onRefresh={onRefresh}/></Suspense>}
   {section==='operations'&&<Suspense fallback={<p role="status">{t('Загрузка…')}</p>}><OwnerOperations/></Suspense>}
+  {section==='leases'&&<Suspense fallback={<p role="status">{t('Загрузка…')}</p>}><OwnerLeases onRefresh={onRefresh}/></Suspense>}
 
   {section==='overview'&&<div className="owner-overview"><article className="panel"><Icon name="users"/><div><h3>{t("Пользователи")}</h3><p>{t("Поиск аккаунта, баланс, подтверждённый депозит, приглашённые и назначенное оборудование.")}</p></div><button className="secondary" onClick={()=>select('users')}>{t("Открыть")}</button></article><article className="panel"><Icon name="node"/><div><h3>{t("Заявки оборудования")}</h3><p>{t("Оборудование, ход обработки и отдельный статус оплаты без ручной имитации платежа.")}</p></div><button className="secondary" onClick={()=>select('requests')}>{t("Открыть")}</button></article><article className="panel"><Icon name="help"/><div><h3>{t("Поддержка")}</h3><p>{t("Живые диалоги с историей, непрочитанными сообщениями и закрытием тикета оператором.")}</p></div><button className="secondary" onClick={()=>select('tickets')}>{t("Открыть")}</button></article><div className="notice-block"><Icon name="shield"/><p>{t("Пополнение USDT TON доступно через TON Connect. Заказы и начисления включаются отдельно; вывод обрабатывается вручную.")}</p></div></div>}
 

@@ -21,7 +21,7 @@ export function destination(value:unknown){
  try{const parsed=Address.parseFriendly(value);if(parsed.isTestOnly||parsed.address.workChain!==0)throw Error();return parsed.address.toString({bounceable:false,urlSafe:true});}
  catch{throw new BadRequestException('Укажите корректный адрес TON Mainnet.');}
 }
-export function presentWithdrawal(row:WithdrawalRequest){return {id:row.id,asset:row.asset,network:row.network,destinationAddress:friendly(row.destinationAddress),amount:microsToDecimal(row.amountMicros),fee:row.feeMicros===null?null:microsToDecimal(row.feeMicros),netAmount:row.netAmountMicros===null?null:microsToDecimal(row.netAmountMicros),status:row.status,txHash:row.txHash,createdAt:row.createdAt,reviewedAt:row.reviewedAt,completedAt:row.completedAt,rejectionReason:row.rejectionReason};}
+export function presentWithdrawal(row:WithdrawalRequest){return {id:row.id,asset:row.asset,network:row.network,destinationAddress:friendly(row.destinationAddress),amount:microsToDecimal(row.amountMicros),fee:row.feeMicros===null?null:microsToDecimal(row.feeMicros),platformFee:row.platformFeeMicros===null?null:microsToDecimal(row.platformFeeMicros),networkFee:row.networkFeeMicros===null?null:microsToDecimal(row.networkFeeMicros),netAmount:row.netAmountMicros===null?null:microsToDecimal(row.netAmountMicros),status:row.status,txHash:row.txHash,createdAt:row.createdAt,reviewedAt:row.reviewedAt,completedAt:row.completedAt,rejectionReason:row.rejectionReason};}
 export function parseWithdrawal(input:Record<string,unknown>){
  if(input.asset!=='USDT'||input.network!=='TON')throw new BadRequestException('Поддерживается только USDT в TON Mainnet.');
  const address=destination(input.destinationAddress);
@@ -40,7 +40,7 @@ export async function createWithdrawal(db:PrismaClient,userId:string,input:Recor
   const balance=(await tx.ledgerEntry.aggregate({where:{userId},_sum:{amountMicros:true}}))._sum.amountMicros||0n;
   if(amount>balance)throw new BadRequestException('Недостаточно доступных средств.');
   if(await tx.withdrawalRequest.count({where:{userId,status:{in:['REQUESTED','UNDER_REVIEW','APPROVED','PROCESSING']}}}))throw new BadRequestException('Сначала завершите текущую заявку на вывод.');
-  const row=await tx.withdrawalRequest.create({data:{userId,idempotencyKey:key,asset:'USDT',network:'TON',destinationAddress:Address.parse(address).toRawString(),amountMicros:amount}});
+  const row=await tx.withdrawalRequest.create({data:{userId,idempotencyKey:key,asset:'USDT',network:'TON',destinationAddress:Address.parse(address).toRawString(),amountMicros:amount,platformFeeMicros:0n}});
   await tx.ledgerEntry.create({data:{userId,amountMicros:-amount,kind:'WITHDRAWAL_RESERVE',sourceId:'withdrawal-reserve:'+row.id}});
   await tx.audit.create({data:{actorId:userId,action:'WITHDRAWAL_CREATED',targetId:row.id}});
   await notify(tx,{userId,type:'WITHDRAWAL_CREATED',title:'Заявка на вывод создана',message:microsToDecimal(amount)+' USDT · TON',referenceType:'WITHDRAWAL',referenceId:row.id,dedupeKey:'withdrawal:'+row.id+':REQUESTED'});
@@ -60,7 +60,7 @@ export async function updateWithdrawal(db:PrismaClient,actorId:string,id:string,
   await tx.$queryRaw`SELECT id FROM withdrawal_requests WHERE id=${id}::uuid FOR UPDATE`;
   const row=await tx.withdrawalRequest.findUniqueOrThrow({where:{id}});
   if(row.userId!==peek.userId)throw new NotFoundException();
-  let reason:string|null=null,hash:string|null=row.txHash,fee=row.feeMicros;
+  let reason:string|null=null,hash:string|null=row.txHash,fee=row.feeMicros,networkFee=row.networkFeeMicros;
   if(next==='REJECTED'){
    if(typeof input.rejectionReason!=='string'||input.rejectionReason.trim().length<3||input.rejectionReason.length>1000)throw new BadRequestException('Укажите причину отказа.');
    reason=input.rejectionReason.trim();
@@ -71,19 +71,21 @@ export async function updateWithdrawal(db:PrismaClient,actorId:string,id:string,
   }
   if(next==='COMPLETED'&&!hash)throw new BadRequestException('Для завершения нужен хэш транзакции.');
   if(hash&&hash!==row.txHash&&await tx.withdrawalRequest.findFirst({where:{txHash:hash,id:{not:id}},select:{id:true}}))throw new BadRequestException('Хэш уже использован в другой заявке.');
-  if(input.fee!==undefined){
+  if(input.networkFee!==undefined||input.fee!==undefined){
    if(!owner||!['APPROVED','PROCESSING','COMPLETED'].includes(next))throw new BadRequestException('Комиссию может указать только оператор.');
-   try{fee=input.fee==='0'?0n:usdtUnits(input.fee);}catch{throw new BadRequestException('Некорректная комиссия USDT.');}
+   const supplied=input.networkFee??input.fee;
+   try{fee=supplied==='0'?0n:usdtUnits(supplied);}catch{throw new BadRequestException('Некорректная комиссия сети TON.');}
    if(fee>=row.amountMicros)throw new BadRequestException('Комиссия должна быть меньше суммы.');
+   networkFee=fee;
   }
-  if(next==='REJECTED'||next==='CANCELLED')fee=null;
+  if(next==='REJECTED'||next==='CANCELLED'){fee=null;networkFee=null;}
   if(row.status===next){
-   if(row.rejectionReason===reason&&row.txHash===hash&&row.feeMicros===fee)return presentWithdrawal(row);
+   if(row.rejectionReason===reason&&row.txHash===hash&&row.feeMicros===fee&&row.networkFeeMicros===networkFee)return presentWithdrawal(row);
    throw new BadRequestException('Статус уже установлен с другими реквизитами.');
   }
   if(!WITHDRAWAL_TRANSITIONS[row.status]?.includes(next))throw new BadRequestException('Переход между статусами недоступен.');
   const now=new Date();
-  const updated=await tx.withdrawalRequest.update({where:{id},data:{status:next,rejectionReason:reason,txHash:hash,feeMicros:fee,netAmountMicros:fee===null?null:row.amountMicros-fee,reviewedAt:next==='UNDER_REVIEW'?now:undefined,completedAt:next==='COMPLETED'?now:undefined}});
+  const updated=await tx.withdrawalRequest.update({where:{id},data:{status:next,rejectionReason:reason,txHash:hash,feeMicros:fee,networkFeeMicros:networkFee,netAmountMicros:fee===null?null:row.amountMicros-fee,reviewedAt:next==='UNDER_REVIEW'?now:undefined,completedAt:next==='COMPLETED'?now:undefined}});
   if(next==='CANCELLED'||next==='REJECTED')await tx.ledgerEntry.create({data:{userId:row.userId,amountMicros:row.amountMicros,kind:'WITHDRAWAL_RELEASE',sourceId:'withdrawal-release:'+id}});
   await tx.audit.create({data:{actorId,action:next==='CANCELLED'?'WITHDRAWAL_CANCEL':withdrawalActions[next],targetId:id}});
   await notify(tx,{userId:row.userId,type:'WITHDRAWAL_UPDATED',title:'Статус вывода изменён',message:next+' · '+microsToDecimal(row.amountMicros)+' USDT',referenceType:'WITHDRAWAL',referenceId:id,dedupeKey:'withdrawal:'+id+':'+next});
@@ -95,15 +97,22 @@ export async function activity(db:PrismaClient,userId:string,filter:string='ALL'
  const [deposits,withdrawals,entries,leases]=await Promise.all([
   filter==='ALL'||filter==='DEPOSIT'?db.tonDeposit.findMany({where:{userId},orderBy:{createdAt:'desc'},take:50}):[],
   filter==='ALL'||filter==='WITHDRAWAL'?db.withdrawalRequest.findMany({where:{userId},orderBy:{createdAt:'desc'},take:50}):[],
-  ['ALL','PURCHASE','REFUND','ADJUSTMENT'].includes(filter)?db.ledgerEntry.findMany({where:{userId,kind:{notIn:['DEPOSIT','DEPOSIT_CONFIRMED','CRYPTO_DEPOSIT_CONFIRMED','WITHDRAWAL_RESERVE','WITHDRAWAL_RELEASE']}},orderBy:{createdAt:'desc'},take:50}):[],
+  ['ALL','PURCHASE','REFUND','EPOCH','ADJUSTMENT'].includes(filter)?db.ledgerEntry.findMany({where:{userId,kind:{notIn:['DEPOSIT','DEPOSIT_CONFIRMED','CRYPTO_DEPOSIT_CONFIRMED','WITHDRAWAL_RESERVE','WITHDRAWAL_RELEASE']}},orderBy:{createdAt:'desc'},take:100}):[],
   filter==='ALL'||filter==='EPOCH'?db.userLease.findMany({where:{userId},include:{node:{select:{name:true}}},orderBy:{createdAt:'desc'},take:50}):[]
  ]);
+ const modern=leases.filter(row=>row.offerVersion);
+ const leaseEvents=modern.length?await db.audit.findMany({where:{targetId:{in:modern.map(row=>row.id)},action:{in:['EQUIPMENT_ACTIVATED','EPOCH_COMPLETED','EARLY_UNBOND']}},orderBy:{createdAt:'desc'},take:100}):[];
+ const names=new Map(modern.map(row=>[row.id,row.node.name]));
  const items=[
   ...deposits.map(row=>({id:'deposit:'+row.id,type:'DEPOSIT',amount:microsToDecimal(row.receivedMicros||row.requestedMicros),status:row.status,network:'TON',createdAt:row.createdAt,details:{invoiceId:row.invoiceId,wallet:friendly(row.senderAddress),txHash:row.txHash,confirmedAt:row.confirmedAt}})),
   ...withdrawals.map(row=>({id:'withdrawal:'+row.id,type:'WITHDRAWAL',amount:microsToDecimal(row.amountMicros),status:row.status,network:'TON',createdAt:row.createdAt,details:{destination:friendly(row.destinationAddress),txHash:row.txHash,fee:row.feeMicros===null?null:microsToDecimal(row.feeMicros),rejectionReason:row.rejectionReason}})),
-  ...entries.map(row=>({id:'ledger:'+row.id,type:row.kind==='REFUND'?'REFUND':row.kind==='PURCHASE'?'PURCHASE':'ADJUSTMENT',amount:microsToDecimal(row.amountMicros),status:'COMPLETED',network:null,createdAt:row.createdAt,details:{}})),
-  ...leases.map(row=>({id:'epoch:'+row.id,type:'EPOCH',amount:null,status:row.status,network:null,createdAt:row.createdAt,details:{node:row.node.name,expiresAt:row.expiresAt}}))
- ].filter(row=>filter==='ALL'||row.type===filter).sort((a,b)=>b.createdAt.getTime()-a.createdAt.getTime()||b.id.localeCompare(a.id));
+  ...entries.map(row=>({id:'ledger:'+row.id,type:row.kind==='REFUND'||row.kind==='PURCHASE_REFUND'?'REFUND':row.kind==='PURCHASE'?'PURCHASE':
+   ['EPOCH_YIELD','EPOCH_COMPOUND_YIELD','LEASE_PRINCIPAL_RELEASE','EARLY_UNBONDING_FEE'].includes(row.kind)?row.kind:'ADJUSTMENT',
+   category:['EPOCH_YIELD','EPOCH_COMPOUND_YIELD','LEASE_PRINCIPAL_RELEASE','EARLY_UNBONDING_FEE'].includes(row.kind)?'EPOCH':row.kind==='REFUND'||row.kind==='PURCHASE_REFUND'?'REFUND':row.kind==='PURCHASE'?'PURCHASE':'ADJUSTMENT',
+   amount:microsToDecimal(row.amountMicros),status:'COMPLETED',network:null,createdAt:row.createdAt,details:{sourceId:row.sourceId}})),
+  ...leases.filter(row=>!row.offerVersion).map(row=>({id:'epoch:'+row.id,type:'EPOCH',category:'EPOCH',amount:null,status:row.status,network:null,createdAt:row.createdAt,details:{node:row.node.name,expiresAt:row.expiresAt}})),
+  ...leaseEvents.map(row=>({id:'lease-event:'+row.id,type:row.action,category:'EPOCH',amount:null,status:'COMPLETED',network:null,createdAt:row.createdAt,details:{node:names.get(row.targetId)}}))
+ ].filter(row=>filter==='ALL'||row.type===filter||'category'in row&&row.category===filter).sort((a,b)=>b.createdAt.getTime()-a.createdAt.getTime()||b.id.localeCompare(a.id));
  return {items:items.slice(0,50)};
 }
 export async function requestData(db:PrismaClient,userId:string,kind:unknown){

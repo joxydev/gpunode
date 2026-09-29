@@ -77,3 +77,8 @@ curl --fail https://31.77.226.26/api/health
 - Пользовательское соглашение: `frontend/public/documents/user-agreement-aethermind.pdf`.
 
 Реализация следует предоставленному документу технически, но не является независимым юридическим заключением. Изменение оферты требует новой версии, нового SHA-256 и повторного акцепта пользователя.
+# Financial cycle rollout
+
+The new purchase/activation/Base/Compound/unbonding code is deployed with all `ENABLE_*` financial flags OFF. The historic signed offer and every acceptance remain unchanged. `docs/OFFER_FINANCIAL_DRAFT.pdf` is an unsigned legal review draft, never a production contract. A separately approved signed PDF must be supplied as `frontend/public/documents/public-offer-aethermind-financial-signed.pdf`, with its actual SHA-256, actual publication date, and `FINANCIAL_OFFER_VERSION=88-2026-AI-FINANCIAL-YYYY-MM-DD`. The server verifies the deployed PDF hash and the historic offer's seven-day effective period. Do not copy the draft into that filename on production.
+
+The operator must establish real `gpu_catalog.supply_known`, supply and contract references before any canary purchase. Only then can the flags be enabled for `OWNER_TELEGRAM_ID`/`FINANCIAL_CANARY_IDS`. `FINANCIAL_PUBLIC_ACCESS=false` protects the public rollout. `npm run epoch:settle` is the idempotent worker invoked by the systemd timer. Existing TON Proof, gasless and watcher jobs remain separate. Manual withdrawal requests reserve ledger funds; standard platform fee is 0 and network fee is recorded separately once known.

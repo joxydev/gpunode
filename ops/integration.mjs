@@ -213,7 +213,7 @@ try{
   assert.equal((await call('/v1/data-requests',other)).data.items.length,0);
   assert.equal((await call('/v1/admin/data-requests',user)).status,403);
   assert.equal((await call('/v1/admin/data-requests',owner)).data.items.some(row=>row.user.id==='22222'),true);
- const status=(await call('/v1/status',user)).data;assert.equal(status.withdrawals,'MANUAL');assert.equal(status.orders,'LIMITED');assert.equal('treasuryBalance' in status,false);
+ const status=(await call('/v1/status',user)).data;assert.equal(status.withdrawals,'MANUAL');assert.equal(status.orders,'PAUSED');assert.equal(status.accrual,'PAUSED');assert.equal('treasuryBalance' in status,false);
  assert.equal((await call('/v1/admin/operations',user)).status,403);
  const operations=(await call('/v1/admin/operations',owner)).data;
  assert.equal(operations.withdrawalMode,'MANUAL');assert.equal(operations.depositMode,'disabled','isolated CI has no TON provider key');

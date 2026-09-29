@@ -13,13 +13,13 @@ export const offerTariffs=[
 
 export type JourneyState='DONE'|'CURRENT'|'WAITING'|'LOCKED';
 export type JourneyStep={id:'REGISTERED'|'TARIFF'|'FUNDED'|'ORDERED'|'WITHDRAW';title:string;description:string;state:JourneyState;available:boolean};
-export function journey(input:{selected:boolean;funded:boolean;ordered:boolean;epochComplete:boolean;pendingOrder?:boolean}):JourneyStep[]{
-  const {selected,funded,ordered,epochComplete,pendingOrder}=input;
+export function journey(input:{selected:boolean;funded:boolean;ordered:boolean;epochComplete:boolean;pendingOrder?:boolean;purchaseEnabled?:boolean}):JourneyStep[]{
+  const {selected,funded,ordered,epochComplete,pendingOrder,purchaseEnabled=false}=input;
   return [
    {id:'REGISTERED',title:'Регистрация',description:'Профиль Telegram создан и защищён.',state:'DONE',available:true},
    {id:'TARIFF',title:'Выбор тарифа',description:selected?'Тариф сохранён в профиле.':'Выберите фиксированную категорию по оферте.',state:selected?'DONE':'CURRENT',available:true},
    {id:'FUNDED',title:'Пополнение',description:funded?'Подтверждённый баланс USDT в сети TON.':'Пополните кошелёк через TON Connect.',state:funded?'DONE':selected?'CURRENT':'WAITING',available:true},
-   {id:'ORDERED',title:'Заказать тариф',description:ordered?'Оборудование назначено.':pendingOrder?'Заявка ожидает решения оператора.':'Заказы тарифов подключаются отдельным этапом; средства остаются на балансе.',state:ordered?'DONE':'WAITING',available:false},
-   {id:'WITHDRAW',title:'Вывести средства',description:epochComplete?'По завершении Epoch запрос на выплату рассматривается оператором вручную.':'После окончания срока выбранного тарифа, вручную через поддержку.',state:epochComplete?'CURRENT':'LOCKED',available:false}
+   {id:'ORDERED',title:'Заказать тариф',description:ordered?'Оборудование заказано или активировано.':pendingOrder?'Заявка ожидает решения оператора.':purchaseEnabled?'Проверьте условия и подтвердите списание доступного баланса.':'Заказы тарифов пока приостановлены; средства остаются на балансе.',state:ordered?'DONE':purchaseEnabled&&funded?'CURRENT':'WAITING',available:purchaseEnabled},
+   {id:'WITHDRAW',title:'Вывести средства',description:epochComplete?'Свободные средства можно вывести через заявку; оператор выполнит перевод вручную.':'Свободную Base-прибыль можно вывести ежедневно через заявку.',state:epochComplete?'CURRENT':'LOCKED',available:true}
   ];
 }

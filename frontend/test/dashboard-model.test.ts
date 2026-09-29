@@ -14,7 +14,8 @@ test('dashboard balance remains exact and activity uses persisted events without
 });
 
 test('Epoch progress uses real lease timestamps and never exceeds the term',()=>{
- const node={createdAt:'2026-09-01T00:00:00Z',expiresAt:'2026-09-30T00:00:00Z'} as Account['activeNodes'][number];
+ const node={createdAt:'2026-08-31T00:00:00Z',activatedAt:'2026-09-01T00:00:00Z',epochEndsAt:'2026-09-30T00:00:00Z',expiresAt:'2026-09-30T00:00:00Z',contractDays:29} as Account['activeNodes'][number];
  assert.deepEqual(epochDays(node,Date.parse('2026-09-21T00:00:00Z')),{current:21,total:29,remaining:9});
- assert.equal(epochDays({...node,expiresAt:node.createdAt}),null);
+ assert.equal(epochDays({...node,epochEndsAt:node.activatedAt}),null);
+ assert.equal(epochDays({...node,activatedAt:null,epochEndsAt:null,expiresAt:null,legacyTermsReview:false}),null,'provisioning has no Epoch clock');
 });

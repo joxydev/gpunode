@@ -26,11 +26,11 @@
 - `GET /api/v1/market` и `GET /api/v1/market/:id` — параметры каталога.
 - `POST /api/profile/tariff` — идемпотентный выбор доступной категории после принятия документов; денег не списывает.
 - `GET /api/v1/market/leases` — только собственные записи пользователя.
-- `POST /api/v1/market/buy` — закрыт на сервере и возвращает `PAYMENTS_DISABLED`.
+- `POST /api/v1/market/buy` — реализован в `financial-cycle.ts`, но отвечает `PURCHASES_PAUSED`, пока новая редакция не утверждена и отдельный флаг выключен.
 
 Баланс хранится в едином `LedgerEntry` в микро-USDT. Интерфейс основного баланса показывает целые USDT, не меняя точность серверного учёта. В БД сохраняются уже существующие аккаунты, обращения, заявки, ledger и аренды.
 
-Подготовленный `reserveLease` не подключён к HTTP. Его будущий вызов обязан выполняться в одной PostgreSQL-транзакции с блокировкой пользователя и каталога, idempotency key, проверкой баланса, snapshot условий, записью ledger и audit. Одной переменной окружения недостаточно, чтобы открыть покупки.
+Исторический `reserveLease` сохранён для совместимости тестов и не подключён к HTTP. Production-транзакция покупки реализована в `financial-cycle.ts` с блокировкой пользователя и каталога, idempotency key, проверкой баланса, snapshot условий, ledger, order, notification и audit. Одной переменной окружения недостаточно для открытия покупок: сервер требует утверждённый PDF/SHA и дату вступления в силу.
 
 ## Партнёрская сеть
 
@@ -39,3 +39,8 @@
 ## Следующий технический этап
 
 До включения финансов необходимо реализовать и проверить: платёжный provider adapter, подписанные webhooks и сверку транзакций; версионируемый заказ тарифа; provisioning/outbox; идемпотентный расчёт Epoch; правила Compound Boost; offsite backup, мониторинг и процедуры возврата. До этого `paymentsEnabled`, `purchasesEnabled`, `accrualEnabled` и `compoundEnabled` остаются `false`.
+# Финансовый lifecycle (feature flags OFF на первом релизе)
+
+После утверждения новой финансовой оферты заказ `/api/v1/market/buy` блокирует `User` и каталог, проверяет подтверждённый ledger, supply и immutable тарифы, списывает principal, создаёт `UserLease(PROVISIONING)` и `RentalRequest(PAID)` в одной транзакции. Только активация оператором запускает Epoch. Base yield входит в ledger после каждого полного 24-часового интервала; Compound капитализируется внутри lease и выпускается вместе с principal только по завершении полного Epoch. Early Unbond доступен лишь Base до `epochEndsAt`, с серверной котировкой и отдельной комиссией по 5.7. Сетевой Gas Fee обычного вывода не является комиссией за Early Unbond.
+
+Флаги `ENABLE_PURCHASES`, `ENABLE_EPOCH_ACTIVATION`, `ENABLE_ACCRUAL`, `ENABLE_COMPOUND`, `ENABLE_EARLY_UNBONDING` по умолчанию выключены. `FINANCIAL_PUBLIC_ACCESS` остаётся `false` до успешного canary и reconciliation. Supply не генерируется миграцией.
