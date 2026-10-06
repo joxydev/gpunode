@@ -205,5 +205,11 @@ export const productionTranslations:Record<string,[string,string]>={
  'Начисления временно приостановлены.':['Accruals are temporarily paused.','Acumulările sunt suspendate temporar.'],
  'Условия старой ноды требуют проверки оператором.':['Legacy node terms require operator review.','Condițiile nodului vechi necesită verificarea operatorului.'],
  'Условия тарифа временно недоступны.':['Plan terms are temporarily unavailable.','Condițiile planului sunt temporar indisponibile.'],
- 'Заказ требует проверки оператором.':['Order requires operator review.','Comanda necesită verificarea operatorului.']
+ 'Заказ требует проверки оператором.':['Order requires operator review.','Comanda necesită verificarea operatorului.'],
+ 'Новые пополнения приостановлены: оферта указывает TRC-20/BEP-20, а текущий кошелёк работает в TON. Заказы и начисления выключены.':['New deposits are paused: the offer lists TRC-20/BEP-20 while the current wallet uses TON. Orders and accruals are disabled.','Depunerile noi sunt suspendate: oferta prevede TRC-20/BEP-20, iar portofelul actual utilizează TON. Comenzile și acumulările sunt dezactivate.'],
+ 'Пополнение возобновится после согласования оферты и платёжной сети.':['Deposits will resume once the offer and payment network match.','Depunerile vor fi reluate după alinierea ofertei cu rețeaua de plată.'],
+ 'Новые TON-пополнения приостановлены из-за расхождения с офертой. Существующие поступления и вывод обрабатываются вручную.':['New TON deposits are paused due to a mismatch with the offer. Existing payments and withdrawals are reviewed manually.','Depunerile noi prin TON sunt suspendate din cauza diferenței față de ofertă. Plățile existente și retragerile sunt verificate manual.'],
+ 'Новые пополнения приостановлены':['New deposits are paused','Depunerile noi sunt suspendate'],
+ 'Новые счета TON временно не создаются. История прежних платежей остаётся доступной.':['New TON invoices are paused. Previous payments remain in your history.','Facturile noi TON sunt suspendate. Plățile anterioare rămân în istoric.'],
+ 'Оферта указывает TRC-20/BEP-20, а этот кошелёк работает в TON. Не отправляйте средства по старым реквизитам. Ранее созданные счета и платежи остаются в истории.':['The offer lists TRC-20/BEP-20 while this wallet uses TON. Do not send funds to old invoice addresses. Existing invoices and payments remain in history.','Oferta prevede TRC-20/BEP-20, iar acest portofel utilizează TON. Nu trimite fonduri la adresele facturilor vechi. Facturile și plățile existente rămân în istoric.']
 };

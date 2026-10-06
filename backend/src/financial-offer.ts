@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
+import {OFFER_VERSION} from './offer.js';
 
 // The signed financial edition is supplied and approved separately. The old
 // accepted offer and its signed PDF must remain accessible in every release.
@@ -8,6 +9,9 @@ export const FINANCIAL_OFFER_DRAFT_VERSION='88-2026-AI-FINANCIAL-DRAFT-2026-09-2
 export const FINANCIAL_OFFER_DOCUMENT='/documents/public-offer-aethermind-financial-signed.pdf';
 export type FinancialOffer={version:string;sha256:string;publishedAt:string;documentUrl:string};
 export function financialOffer():FinancialOffer|null{
+ // The current edition specifies TRC-20/BEP-20, whereas the implemented wallet
+ // and payout flow are TON-only. No financial flags may be promoted under it.
+ if(OFFER_VERSION==='88-2026-AI-2026-09-30')return null;
  const {FINANCIAL_OFFER_VERSION:version,FINANCIAL_OFFER_SHA256:sha256,FINANCIAL_OFFER_PUBLISHED_AT:publishedAt,FINANCIAL_OFFER_APPROVED:approved}=process.env;
  if(approved!=='true'||!version||version===FINANCIAL_OFFER_DRAFT_VERSION||!/^88-2026-AI-FINANCIAL-\d{4}-\d{2}-\d{2}$/.test(version)||
   !sha256||!/^([0-9a-f]{64})$/.test(sha256)||!publishedAt||!/^\d{4}-\d{2}-\d{2}$/.test(publishedAt)||

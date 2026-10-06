@@ -1,8 +1,19 @@
+import {createHash} from 'node:crypto';
+import {readFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+
 export const OFFER_NUMBER='88/2026-AI';
-export const OFFER_VERSION='88-2026-AI-2026-09-21';
-export const OFFER_PUBLISHED_AT='2026-09-14';
-export const OFFER_SIGNED_AT='2026-09-21';
-export const OFFER_DOCUMENT_SHA256='b21177972dbdeedbea731e826b070ff7fb148ec1f96e7892536e67e40732ce88';
+// The version identifies the edition printed on the PDF. The actual publication
+// date is recorded at deployment; it must not be backdated to the PDF's date.
+export const OFFER_VERSION='88-2026-AI-2026-09-30';
+export const OFFER_PUBLISHED_AT=process.env.OFFER_PUBLISHED_AT||null;
+export const OFFER_SIGNED_AT=null; // This PDF has no embedded digital signature.
+export const OFFER_DOCUMENT_SHA256='0c8e7036a52be9d1ff415a5a44f76743246e032aff0fe14300fa11f973e1a8eb';
+export function offerDocumentMatches(root=fileURLToPath(new URL('../..',import.meta.url))){
+ try{return createHash('sha256').update(readFileSync(join(root,'frontend/dist/documents/public-offer-aethermind.pdf'))).digest('hex')===OFFER_DOCUMENT_SHA256;}
+ catch{return false;}
+}
 
 export const offerTariffs=[
   {nodeId:'NODE_4090',id:'ALPHA',name:'Node Alpha',depositUsdt:'50',days:30,dailyPercent:'1.50',dailyUsdt:'0.75',compoundPercent:'1.80',termPercent:'45',termYieldUsdt:'22.50',available:true},
@@ -18,8 +29,8 @@ export function journey(input:{selected:boolean;funded:boolean;ordered:boolean;e
   return [
    {id:'REGISTERED',title:'Регистрация',description:'Профиль Telegram создан и защищён.',state:'DONE',available:true},
    {id:'TARIFF',title:'Выбор тарифа',description:selected?'Тариф сохранён в профиле.':'Выберите фиксированную категорию по оферте.',state:selected?'DONE':'CURRENT',available:true},
-   {id:'FUNDED',title:'Пополнение',description:funded?'Подтверждённый баланс USDT в сети TON.':'Пополните кошелёк через TON Connect.',state:funded?'DONE':selected?'CURRENT':'WAITING',available:true},
+   {id:'FUNDED',title:'Пополнение',description:funded?'Ранее зачисленный баланс USDT.':'Новые пополнения приостановлены до согласования платёжных сетей с офертой.',state:funded?'DONE':selected?'WAITING':'WAITING',available:false},
    {id:'ORDERED',title:'Заказать тариф',description:ordered?'Оборудование заказано или активировано.':pendingOrder?'Заявка ожидает решения оператора.':purchaseEnabled?'Проверьте условия и подтвердите списание доступного баланса.':'Заказы тарифов пока приостановлены; средства остаются на балансе.',state:ordered?'DONE':purchaseEnabled&&funded?'CURRENT':'WAITING',available:purchaseEnabled},
-   {id:'WITHDRAW',title:'Вывести средства',description:epochComplete?'Свободные средства можно вывести через заявку; оператор выполнит перевод вручную.':'Свободную Base-прибыль можно вывести ежедневно через заявку.',state:epochComplete?'CURRENT':'LOCKED',available:true}
+   {id:'WITHDRAW',title:'Вывести средства',description:epochComplete?'Свободные средства можно вывести через заявку; оператор выполнит перевод вручную.':'Ранее зачисленные свободные средства можно вывести через заявку.',state:epochComplete?'CURRENT':'LOCKED',available:true}
   ];
 }

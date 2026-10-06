@@ -20,9 +20,9 @@ export function nextAccountAction(input:{
  if(input.leases.some(lease=>lease.status==='COMPLETED'||lease.status==='EARLY_UNBONDED'))return {kind:'EPOCH_COMPLETED' as AccountAction};
  if(input.leases.some(lease=>lease.status==='EXPIRED'||['ACTIVE','OVERCLOCKED'].includes(lease.status)&&lease.expiresAt&&lease.expiresAt<=now))return {kind:'WITHDRAW_MANUAL' as AccountAction};
  if(!input.selected)return {kind:'SELECT_TARIFF' as AccountAction};
+ if(!input.purchasesEnabled)return {kind:'ORDER_UNAVAILABLE' as AccountAction,tariff:input.selected.name};
  const required=BigInt(input.selected.depositUsdt)*1000000n;
  if(input.balanceMicros<required)return {kind:'ADD_FUNDS' as AccountAction,tariff:input.selected.name,required:microsToDecimal(required),missing:microsToDecimal(required-input.balanceMicros)};
- if(!input.purchasesEnabled)return {kind:'ORDER_UNAVAILABLE' as AccountAction,tariff:input.selected.name};
  if(!input.currentOfferAccepted)return {kind:'CURRENT_OFFER_REQUIRED' as AccountAction,tariff:input.selected.name};
  return {kind:'ORDER_READY' as AccountAction,tariff:input.selected.name};
 }
