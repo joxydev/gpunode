@@ -1,6 +1,6 @@
 /* One static vector sky; no canvas loop, parallax, or animated background image. */
 html{background:#07080e}
-body{min-height:100dvh;background-color:#07080e;background-image:linear-gradient(180deg,#07080e12 0%,#07080ed9 85%,#07080e 100%),url('/assets/cosmic-field.svg');background-position:center top;background-size:100% 1400px,cover;background-repeat:no-repeat;background-attachment:scroll,fixed}
+body{min-height:100dvh;background-color:#07080e;background-image:linear-gradient(180deg,#07080e12 0%,#07080ed9 85%,#07080e 100%),url('/assets/ambient-desktop.webp');background-position:center top;background-size:100% 1400px,cover;background-repeat:no-repeat;background-attachment:scroll,fixed}
 .app-shell{position:relative;z-index:1;width:100%;max-width:1540px;min-height:100dvh;margin-inline:auto;padding-inline:clamp(16px,3vw,44px)}
 .app-shell .workspace{width:100%;max-width:1320px;margin-inline:auto}
 .app-shell .panel{box-shadow:0 12px 44px #0306122e}
@@ -97,7 +97,7 @@ html[data-ambient-motion=paused] body::before{animation-play-state:paused}
  .app-shell .market-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media(max-width:600px){
- body{background-image:linear-gradient(180deg,#07080e4d 0%,#07080edb 78%,#07080e 100%),url('/assets/cosmic-field.svg');background-size:100% 850px,auto 850px;background-position:center top,52% top;background-attachment:scroll,scroll}
+ body{background-image:linear-gradient(180deg,#07080e4d 0%,#07080edb 78%,#07080e 100%),url('/assets/ambient-mobile.webp');background-size:100% 850px,cover;background-position:center top,52% top;background-attachment:scroll,scroll}
  .app-shell .workspace{padding-top:15px;padding-bottom:calc(104px + env(safe-area-inset-bottom))}
  .app-shell .bottom-nav{padding-top:8px;padding-bottom:calc(7px + env(safe-area-inset-bottom))}
  .app-shell .bottom-nav button{min-height:52px;gap:5px;font-size:10px}
@@ -129,3 +129,14 @@ html[data-ambient-motion=paused] body::before{animation-play-state:paused}
 }
 @media(max-width:355px){.profile-main .profile-overview{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){.profile-settings>summary svg{transition:none}body::before{animation:none;opacity:.16}}
+
+/* Optimized ambient art across the application; content panels retain contrast. */
+body{background-color:#07080e;background-position:center top,center center;background-size:100% 1400px,cover;background-repeat:no-repeat;background-attachment:scroll,fixed}
+.modal.withdraw-modal{max-width:700px;padding:24px;scroll-behavior:smooth}
+.withdrawal-dialog{margin:0;max-width:none}.withdrawal-dialog .production-heading{padding-right:35px}
+.withdrawal-rules,.withdrawal-fee-schedule{border:1px solid #39567b;border-radius:14px;background:#111d30e8;padding:17px;margin:15px 0}
+.withdrawal-rules h3,.withdrawal-epochs h3{font-size:17px;margin:0 0 10px}.withdrawal-rules p{margin-bottom:9px;color:#c9d8ea}
+.withdrawal-dialog a{color:#75eafa}.withdrawal-epoch{padding:15px;margin:10px 0}.withdrawal-epoch p{margin:9px 0 0;color:#ccd9ed}.withdrawal-epoch strong{color:#e9f8ff}
+.withdrawal-fee-schedule{scroll-margin-top:24px}.withdrawal-fee-schedule summary{cursor:pointer;font-weight:700;color:#a8f4ff}.withdrawal-fee-schedule ul{color:#cbd9ed;line-height:1.8;padding-left:22px;font-size:13px}
+.dashboard-journey details>summary{cursor:pointer;min-height:44px;padding:12px 0;color:#8fe7fa;font-weight:600}
+@media(max-width:600px){body{background-position:center top,center top;background-size:100% 850px,auto 100dvh;background-attachment:scroll,scroll}.modal.withdraw-modal{padding:18px 14px}}

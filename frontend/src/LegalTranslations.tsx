@@ -2,29 +2,25 @@ import type {Language} from './i18n';
 import {Icon} from './Icons';
 import {Fragment} from 'react';
 
-// Reference summary of the separately approved financial edition. The signed
-// Russian PDF remains the authoritative text; the old translated offer is historical.
+// This summary follows the corrected TON public offer; the Russian PDF is authoritative.
 const financialSummary:Record<Language,{title:string;points:string[]}>= {
- ru:{title:'Условия новой финансовой редакции (кратко)',points:[
-  '2.4: направления сетевой нагрузки — LLM, Computer Vision, Neural Rendering, научные расчёты. Это описание платформы, не назначение вашей ноды.',
-  '5.5 и 5.8: Compound Boost выбирается отдельно. Доход капитализируется ежедневно; 30-дневные блоки автоматически продолжаются до завершения полного Epoch, без досрочного вывода.',
-  '5.6 и 5.7: Early Unbonding применяется только к первоначальному депозиту Base: дни 1–14 — 15%, 15–29 — 7%, 30–59 — 3% для Beta/POD, 60–89 — 1,5% для POD; после фактического окончания Epoch — 0%.',
-  '5.7.3: Base-прибыль доступна после ежедневного начисления. Комиссия платформы за обычный вывод — 0%; сетевой Gas Fee оплачивается при ручной отправке.',
-  '6.5: инфраструктурные статьи оператора не являются показаниями работы вашей конкретной ноды.'
+ ru:{title:'Условия оферты (кратко)',points:[
+  '5.1–5.2: пополнение только USDT Jetton в TON по динамическому инвойсу; комиссия платформы за ввод 0%.',
+  '5.3: начисленная прибыль доступна к выводу ежедневно от 10 USDT, комиссия платформы 0%; обработка заявки 15 минут–24 часа.',
+  '5.4: Compound Boost выбирается отдельно; досрочный вывод депозита и накопленной прибыли до конца Epoch недоступен.',
+  '5.5: досрочный возврат основного депозита Base: дни 1–14 — 15%, 15–29 — 7%, 30–59 для Beta/POD — 3%, 60–89 для POD — 1,5%; после Epoch — 0%.'
  ]},
- en:{title:'Updated financial terms (summary)',points:[
-  '2.4: network workloads include LLM, Computer Vision, Neural Rendering and scientific modelling. This describes the platform, not a workload assigned to your node.',
-  '5.5 and 5.8: Compound Boost is optional. Income compounds daily in successive 30-day blocks until the full Epoch ends, with no early unbonding.',
-  '5.6 and 5.7: the Early Unbonding fee applies only to original Base principal: days 1–14 at 15%, 15–29 at 7%, 30–59 at 3% for Beta/POD, 60–89 at 1.5% for POD; 0% only after the actual Epoch end.',
-  '5.7.3: Base income is available after each daily accrual. The standard withdrawal platform fee is 0%; the network Gas Fee applies to the manual transfer.',
-  '6.5: operator infrastructure allocations are not telemetry for your individual node.'
+ en:{title:'Offer terms (summary)',points:[
+  '5.1–5.2: deposits use TON USDT Jetton dynamic invoices; platform deposit fee is 0%.',
+  '5.3: accrued profit can be withdrawn daily from 10 USDT, 0% platform fee; request processing 15 minutes–24 hours.',
+  '5.4: optional Compound Boost locks principal and accrued profit until the Epoch ends.',
+  '5.5: early Base principal fee: days 1–14 15%, 15–29 7%, Beta/POD days 30–59 3%, POD days 60–89 1.5%; 0% after the Epoch.'
  ]},
- ro:{title:'Condiții financiare actualizate (rezumat)',points:[
-  '2.4: sarcinile rețelei includ LLM, Computer Vision, Neural Rendering și modelare științifică. Descrierea privește platforma, nu sarcina atribuită nodului tău.',
-  '5.5 și 5.8: Compound Boost este opțional. Venitul se capitalizează zilnic în blocuri succesive de 30 de zile până la sfârșitul întregului Epoch, fără deblocare anticipată.',
-  '5.6 și 5.7: comisionul de deblocare anticipată se aplică numai depozitului Base inițial: zilele 1–14: 15%, 15–29: 7%, 30–59: 3% pentru Beta/POD, 60–89: 1,5% pentru POD; 0% numai după încheierea efectivă a Epoch.',
-  '5.7.3: venitul Base este disponibil după fiecare acumulare zilnică. Comisionul platformei pentru retragerea obișnuită este 0%; taxa de rețea Gas Fee se aplică transferului manual.',
-  '6.5: alocările infrastructurii operatorului nu sunt telemetrie pentru nodul tău.'
+ ro:{title:'Condițiile ofertei (rezumat)',points:[
+  '5.1–5.2: depuneri numai prin facturi dinamice USDT Jetton pe TON; comisionul platformei 0%.',
+  '5.3: profitul acumulat se poate retrage zilnic de la 10 USDT, comision 0%; procesarea cererii 15 minute–24 ore.',
+  '5.4: Compound Boost opțional blochează capitalul și profitul acumulat până la sfârșitul Epoch.',
+  '5.5: comisionul pentru returnarea anticipată a capitalului Base: zilele 1–14 15%, 15–29 7%, Beta/POD 30–59 3%, POD 60–89 1,5%; 0% după Epoch.'
  ]}
 };
 export function FinancialTermsSummary({language}:{language:Language}){const data=financialSummary[language];return <section className="offer-note" lang={language}><h4>{data.title}</h4><ul>{data.points.map(point=><li key={point}>{point}</li>)}</ul></section>}

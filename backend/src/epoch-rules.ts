@@ -9,14 +9,14 @@ export function calculateEarlyUnbondingFee(input:{activatedAt:Date;epochEndsAt:D
   epochEndsAt.getTime()!==activatedAt.getTime()+contractDays*DAY_MS)throw Error('INVALID_LEASE_TERMS');
  const elapsed=now.getTime()-activatedAt.getTime();
  const cycleDay=Math.min(contractDays,Math.max(1,Math.floor(elapsed/DAY_MS)+1));
- if(now>=epochEndsAt)return {allowed:false,feeBps:0,feeMicros:0n,netPrincipalMicros:principalMicros,cycleDay:contractDays,reason:'EPOCH_COMPLETED',clause:'5.7'};
- if(elapsed<0)return {allowed:false,feeBps:0,feeMicros:0n,netPrincipalMicros:0n,cycleDay:0,reason:'LEASE_NOT_ACTIVE',clause:'5.7'};
- if(compoundEnabled)return {allowed:false,feeBps:0,feeMicros:0n,netPrincipalMicros:0n,cycleDay,reason:'COMPOUND_LOCKED',clause:'5.8'};
+ if(now>=epochEndsAt)return {allowed:false,feeBps:0,feeMicros:0n,netPrincipalMicros:principalMicros,cycleDay:contractDays,reason:'EPOCH_COMPLETED',clause:'5.5'};
+ if(elapsed<0)return {allowed:false,feeBps:0,feeMicros:0n,netPrincipalMicros:0n,cycleDay:0,reason:'LEASE_NOT_ACTIVE',clause:'5.5'};
+ if(compoundEnabled)return {allowed:false,feeBps:0,feeMicros:0n,netPrincipalMicros:0n,cycleDay,reason:'COMPOUND_LOCKED',clause:'5.4'};
  const completedDays=Math.floor(elapsed/DAY_MS);
- const applicable=completedDays<14?1500:completedDays<29?700:completedDays<59?300:150;
+ const applicable=completedDays<14?1500:completedDays<29||contractDays===30?700:completedDays<59||contractDays===60?300:150;
  // Bps apply solely to the original principal; truncate below one micro-USDT.
  const feeMicros=principalMicros*BigInt(applicable)/10000n;
- return {allowed:true,feeBps:applicable,feeMicros,netPrincipalMicros:principalMicros-feeMicros,cycleDay,reason:null,clause:contractDays===30?'5.6 / 5.7':'5.7'};
+ return {allowed:true,feeBps:applicable,feeMicros,netPrincipalMicros:principalMicros-feeMicros,cycleDay,reason:null,clause:'5.5'};
 }
 
 export function completedIntervals(activatedAt:Date,epochEndsAt:Date,now:Date){

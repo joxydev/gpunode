@@ -85,7 +85,7 @@ export async function purchase(db:PrismaClient,userId:string,input:Record<string
   const daily=principal*BigInt(baseRate)/10000n;
   const snapshot={nodeId,name:catalog.name,principalMicros:principal.toString(),baseDailyRateBps:baseRate,compoundDailyRateBps:compoundRate,
    contractDays:catalog.contractDays,compoundCycleDays:COMPOUND_CYCLE_DAYS,mode,offerVersion:offer.version,offerDocumentSha256:offer.sha256,
-   earlyUnbondClause:'5.6 / 5.7',compoundLockClause:'5.8',contractReference:catalog.contractReference};
+   earlyUnbondClause:'5.5',compoundLockClause:'5.4',contractReference:catalog.contractReference};
   const lease=await tx.userLease.create({data:{userId,nodeId,idempotencyKey,purchasePrice:catalog.priceUsdt,
    dailyYieldUsdt:fixed(daily/100n,4),contractReference:catalog.contractReference!,status:'PROVISIONING',expiresAt:null,
    offerVersion:offer.version,offerDocumentSha256:offer.sha256,mode,principalMicros:principal,baseDailyRateBps:baseRate,

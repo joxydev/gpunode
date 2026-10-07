@@ -26,6 +26,7 @@ export function parseWithdrawal(input:Record<string,unknown>){
  if(input.asset!=='USDT'||input.network!=='TON')throw new BadRequestException('Поддерживается только USDT в TON Mainnet.');
  const address=destination(input.destinationAddress);
  let amount:bigint;try{amount=usdtUnits(input.amount);}catch{throw new BadRequestException('Некорректная сумма USDT.');}
+ if(amount<10_000_000n)throw new BadRequestException('Минимальная сумма вывода — 10 USDT (п. 5.3 оферты).');
  if(amount>100000000000000n)throw new BadRequestException('Сумма превышает лимит заявки.');
  const key=input.idempotencyKey;
  if(typeof key!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key))throw new BadRequestException('Некорректный ключ заявки.');
@@ -93,17 +94,25 @@ export async function updateWithdrawal(db:PrismaClient,actorId:string,id:string,
  });
 }
 export async function activity(db:PrismaClient,userId:string,filter:string='ALL'){
- if(!['ALL','DEPOSIT','WITHDRAWAL','PURCHASE','REFUND','EPOCH','ADJUSTMENT'].includes(filter))throw new BadRequestException('Некорректный фильтр операций.');
- const [deposits,withdrawals,entries,leases]=await Promise.all([
+ if(!['ALL','ACCOUNT','DEPOSIT','WITHDRAWAL','PURCHASE','REFUND','EPOCH','ADJUSTMENT'].includes(filter))throw new BadRequestException('Некорректный фильтр операций.');
+ const [deposits,withdrawals,entries,leases,user,acceptances,audits]=await Promise.all([
   filter==='ALL'||filter==='DEPOSIT'?db.tonDeposit.findMany({where:{userId},orderBy:{createdAt:'desc'},take:50}):[],
   filter==='ALL'||filter==='WITHDRAWAL'?db.withdrawalRequest.findMany({where:{userId},orderBy:{createdAt:'desc'},take:50}):[],
   ['ALL','PURCHASE','REFUND','EPOCH','ADJUSTMENT'].includes(filter)?db.ledgerEntry.findMany({where:{userId,kind:{notIn:['DEPOSIT','DEPOSIT_CONFIRMED','CRYPTO_DEPOSIT_CONFIRMED','WITHDRAWAL_RESERVE','WITHDRAWAL_RELEASE']}},orderBy:{createdAt:'desc'},take:100}):[],
-  filter==='ALL'||filter==='EPOCH'?db.userLease.findMany({where:{userId},include:{node:{select:{name:true}}},orderBy:{createdAt:'desc'},take:50}):[]
+  filter==='ALL'||filter==='EPOCH'?db.userLease.findMany({where:{userId},include:{node:{select:{name:true}}},orderBy:{createdAt:'desc'},take:50}):[],
+  filter==='ALL'||filter==='ACCOUNT'?db.user.findUnique({where:{id:userId},select:{createdAt:true,agreementAcceptedAt:true,selectedTariffAt:true,selectedTariffId:true}}):null,
+  filter==='ALL'||filter==='ACCOUNT'?db.offerAcceptance.findMany({where:{userId},orderBy:{acceptedAt:'desc'},take:50}):[],
+  filter==='ALL'||filter==='ACCOUNT'?db.audit.findMany({where:{actorId:userId,action:{in:['TARIFF_SELECTED','WALLET_CONNECTED','SUPPORT_CREATED','SUPPORT_FOLLOW_UP','DATA_EXPORT_REQUEST','DATA_DELETION_REQUEST','REQUEST_CREATED','EQUIPMENT_ORDER_CREATED','WITHDRAWAL_CANCEL','LANGUAGE_CHANGED']}},orderBy:{createdAt:'desc'},take:100}):[]
  ]);
  const modern=leases.filter(row=>row.offerVersion);
  const leaseEvents=modern.length?await db.audit.findMany({where:{targetId:{in:modern.map(row=>row.id)},action:{in:['EQUIPMENT_ACTIVATED','EPOCH_COMPLETED','EARLY_UNBOND']}},orderBy:{createdAt:'desc'},take:100}):[];
  const names=new Map(modern.map(row=>[row.id,row.node.name]));
  const items=[
+  ...(user?[{id:'user:registered',type:'REGISTERED',category:'ACCOUNT',amount:null,status:'COMPLETED',network:null,createdAt:user.createdAt,details:{}},
+   ...(user.agreementAcceptedAt?[{id:'user:agreement',type:'AGREEMENT_ACCEPTED',category:'ACCOUNT',amount:null,status:'COMPLETED',network:null,createdAt:user.agreementAcceptedAt,details:{}}]:[]),
+   ...(user.selectedTariffAt&&!audits.some(row=>row.action==='TARIFF_SELECTED')?[{id:'user:tariff',type:'TARIFF_SELECTED',category:'ACCOUNT',amount:null,status:'COMPLETED',network:null,createdAt:user.selectedTariffAt,details:{node:user.selectedTariffId||undefined}}]:[])]:[]),
+  ...acceptances.map(row=>({id:'offer:'+row.id,type:'PUBLIC_OFFER_ACCEPTED',category:'ACCOUNT',amount:null,status:'COMPLETED',network:null,createdAt:row.acceptedAt,details:{version:row.version}})),
+  ...audits.map(row=>({id:'audit:'+row.id,type:row.action,category:'ACCOUNT',amount:null,status:'COMPLETED',network:null,createdAt:row.createdAt,details:{node:row.action==='TARIFF_SELECTED'?row.targetId:undefined}})),
   ...deposits.map(row=>({id:'deposit:'+row.id,type:'DEPOSIT',amount:microsToDecimal(row.receivedMicros||row.requestedMicros),status:row.status,network:'TON',createdAt:row.createdAt,details:{invoiceId:row.invoiceId,wallet:friendly(row.senderAddress),txHash:row.txHash,confirmedAt:row.confirmedAt}})),
   ...withdrawals.map(row=>({id:'withdrawal:'+row.id,type:'WITHDRAWAL',amount:microsToDecimal(row.amountMicros),status:row.status,network:'TON',createdAt:row.createdAt,details:{destination:friendly(row.destinationAddress),txHash:row.txHash,fee:row.feeMicros===null?null:microsToDecimal(row.feeMicros),rejectionReason:row.rejectionReason}})),
   ...entries.map(row=>({id:'ledger:'+row.id,type:row.kind==='REFUND'||row.kind==='PURCHASE_REFUND'?'REFUND':row.kind==='PURCHASE'?'PURCHASE':
@@ -113,7 +122,7 @@ export async function activity(db:PrismaClient,userId:string,filter:string='ALL'
   ...leases.filter(row=>!row.offerVersion).map(row=>({id:'epoch:'+row.id,type:'EPOCH',category:'EPOCH',amount:null,status:row.status,network:null,createdAt:row.createdAt,details:{node:row.node.name,expiresAt:row.expiresAt}})),
   ...leaseEvents.map(row=>({id:'lease-event:'+row.id,type:row.action,category:'EPOCH',amount:null,status:'COMPLETED',network:null,createdAt:row.createdAt,details:{node:names.get(row.targetId)}}))
  ].filter(row=>filter==='ALL'||row.type===filter||'category'in row&&row.category===filter).sort((a,b)=>b.createdAt.getTime()-a.createdAt.getTime()||b.id.localeCompare(a.id));
- return {items:items.slice(0,50)};
+ return {items:items.slice(0,250)};
 }
 export async function requestData(db:PrismaClient,userId:string,kind:unknown){
  if(!['DATA_EXPORT_REQUEST','DATA_DELETION_REQUEST'].includes(String(kind)))throw new BadRequestException('Некорректный тип запроса.');

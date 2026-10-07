@@ -1,4 +1,4 @@
-import {lazy,Suspense,useCallback,useEffect,useRef,useState} from 'react';
+import {useCallback,useEffect,useRef,useState} from 'react';
 import {useTonConnectUI,useTonWallet,useIsConnectionRestored} from '@tonconnect/ui-react';
 import {useLanguage,intlLocale} from './i18n';
 import {api,type Account} from './api';
@@ -6,8 +6,6 @@ import {Icon} from './Icons';
 import {tonCapabilities} from './ton-capabilities';
 import {useAppBack} from './navigation';
 import './ton-wallet.css';
-const Withdrawals=lazy(()=>import('./Withdrawals'));
-const Activity=lazy(()=>import('./Activity'));
 type SupportReference={referenceType:'DEPOSIT'|'WITHDRAWAL';referenceId:string;invoiceId?:string};
 
 type WalletState={balance:string;connectedWallet:string|null;rawAddress:string|null;verified:boolean;walletVersion:string|null;gaslessAvailable:boolean;paymentCanary:boolean;depositsEnabled:boolean;publicDepositsEnabled:boolean;minAmount:string;maxAmount:string;pending:number};
@@ -20,16 +18,14 @@ function amount(value:string,locale:string){const [whole,frac='']=value.split('.
 function amount6(value:string,locale:string){const [whole,fraction='']=value.split('.');return new Intl.NumberFormat(locale).format(BigInt(whole||'0'))+'.'+fraction.padEnd(6,'0').slice(0,6)}
 const labels:Record<string,string>={PENDING:'Ожидаем перевод',DETECTED:'Обнаружен',CONFIRMED:'Подтверждён',CREDITED:'Зачислен',EXPIRED:'Время счёта истекло',FAILED:'Ошибка',REJECTED:'Отклонён',MANUAL_REVIEW:'Ручная проверка',CANCELLED:'Счёт отменён'};
 
-export default function WalletView({account,onRefresh,onLogin,onSupport,onWithdraw,initialView,viewRequest}:{account:Account|null;onRefresh:()=>Promise<void>;onLogin:()=>void;onSupport:(reference?:SupportReference)=>void;onWithdraw:()=>void;initialView:'deposit'|'history'|'withdraw'|null;viewRequest:number}){
+export default function WalletView({account,onRefresh,onLogin,onSupport,onWithdraw,initialView,viewRequest}:{account:Account|null;onRefresh:()=>Promise<void>;onLogin:()=>void;onSupport:(reference?:SupportReference)=>void;onWithdraw:()=>void;initialView:'deposit'|null;viewRequest:number}){
  const {t,language}=useLanguage(),locale=intlLocale(language);
  const [ui]=useTonConnectUI(),wallet=useTonWallet(),restored=useIsConnectionRestored();
- const [state,setState]=useState<WalletState|null>(null),[history,setHistory]=useState<Deposit[]>([]),[selected,setSelected]=useState<Deposit|null>(null),[step,setStep]=useState<'LIST'|'AMOUNT'|'GASLESS_REVIEW'|'WAITING'>('LIST'),[value,setValue]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
- const [subview,setSubview]=useState<'finance'|'withdraw'|'activity'>('finance');
+ const [state,setState]=useState<WalletState|null>(null),[selected,setSelected]=useState<Deposit|null>(null),[step,setStep]=useState<'LIST'|'AMOUNT'|'GASLESS_REVIEW'|'WAITING'>('LIST'),[value,setValue]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [standard,setStandard]=useState<Transaction|StructuredTransaction|null>(null),[quote,setQuote]=useState<GaslessQuote|null>(null),[manualStandard,setManualStandard]=useState(false),[signUnsupported,setSignUnsupported]=useState(false);
  const signedBoc=useRef<string|null>(null);
- const historyRef=useRef<HTMLDivElement>(null);
  const creditedSeen=useRef(new Set<string>()),initialized=useRef(false);
- const refresh=useCallback(async()=>{if(!account)return;const [w,h]=await Promise.all([api<WalletState>('/v1/wallet'),api<{items:Deposit[]}>('/v1/wallet/transactions')]);setState(w);setHistory(h.items);setSelected(prev=>prev?h.items.find(d=>d.id===prev.id)||prev:prev);
+ const refresh=useCallback(async()=>{if(!account)return;const [w,h]=await Promise.all([api<WalletState>('/v1/wallet'),api<{items:Deposit[]}>('/v1/wallet/transactions')]);setState(w);setSelected(prev=>prev?h.items.find(d=>d.id===prev.id)||prev:prev);
   const credited=h.items.filter(d=>d.status==='CREDITED'&&!creditedSeen.current.has(d.id));
   for(const item of credited)creditedSeen.current.add(item.id);
   if(initialized.current&&credited.length)void onRefresh().catch(()=>{});
@@ -37,8 +33,8 @@ export default function WalletView({account,onRefresh,onLogin,onSupport,onWithdr
  },[account?.user.id,account?.updatedAt]);
  useEffect(()=>{void refresh().catch(e=>setError((e as Error).message))},[refresh]);
  useEffect(()=>{const id=setInterval(()=>{if(document.visibilityState==='visible')void refresh().catch(()=>{})},10000);return()=>clearInterval(id)},[refresh]);
- useEffect(()=>{if(!viewRequest)return;if(initialView==='deposit'&&account){setSubview('finance');setStep('AMOUNT')}else if(initialView==='history'){setSubview('activity');setStep('LIST')}else if(initialView==='withdraw'&&account){setSubview('withdraw');setStep('LIST')}},[viewRequest]);
- useAppBack(subview!=='finance'||step!=='LIST'||Boolean(selected),()=>{if(subview!=='finance')setSubview('finance');else if(step!=='LIST')setStep('LIST');else setSelected(null)});
+ useEffect(()=>{if(!viewRequest)return;if(initialView==='deposit'&&account)setStep('AMOUNT')},[viewRequest]);
+ useAppBack(step!=='LIST'||Boolean(selected),()=>{if(step!=='LIST')setStep('LIST');else setSelected(null)});
  async function connect(){if(!account){onLogin();return}setBusy(true);setError('');try{
    ui.setConnectRequestParameters({state:'loading'});
    const nonce=await api<{payload:string}>('/v1/ton/proof/payload',{});
@@ -70,7 +66,7 @@ export default function WalletView({account,onRefresh,onLogin,onSupport,onWithdr
   try{
    const created=await api<{deposit:Deposit;transaction:Transaction;structuredTransaction:StructuredTransaction|null}>('/v1/deposits',{asset:'USDT',network:'TON',amount:value.trim()});
    const standardTransaction=capabilities.supportsStructuredJetton&&created.structuredTransaction?created.structuredTransaction:created.transaction;
-   setSelected(created.deposit);setHistory(prev=>[created.deposit,...prev]);setStandard(standardTransaction);
+   setSelected(created.deposit);setStandard(standardTransaction);
    if(capabilities.gaslessCandidate&&!signUnsupported){
     try{const estimate=await api<GaslessQuote>('/v1/deposits/'+created.deposit.id+'/gasless/estimate',{});setQuote(estimate);setStep('GASLESS_REVIEW')}
     catch(e){setError((e as Error).message);setStep('WAITING');setManualStandard(true)}
@@ -88,13 +84,10 @@ export default function WalletView({account,onRefresh,onLogin,onSupport,onWithdr
  }
  const verified=Boolean(wallet&&wallet.account.chain==='-239'&&state?.verified&&
    (wallet.account.address===state.rawAddress||wallet.account.address===state.connectedWallet));
- if(subview==='withdraw'&&account)return <Suspense fallback={<div className="activity-skeleton" role="status" aria-label={t('Загрузка…')}><i/><i/></div>}><Withdrawals balance={account.balance} lockedBase={account.lockedBase} lockedCompound={account.lockedCompound} onBack={()=>setSubview('finance')} onRefresh={onRefresh} onSupport={onSupport}/></Suspense>;
- if(subview==='activity')return <Suspense fallback={<div className="activity-skeleton" role="status" aria-label={t('Загрузка…')}><i/><i/></div>}><Activity onBack={()=>setSubview('finance')} onSupport={onSupport}/></Suspense>;
  return <section className="ton-wallet">
   <div className="section-title"><h1>{t('Финансы')}</h1><span className="micro">USDT · TON NETWORK</span></div>
   {error&&<div className="alert error" role="alert">{error}<button onClick={()=>setError('')}>×</button></div>}
   <div className="wallet-overview"><article className="panel balance-card"><span>{t('Доступный баланс')}</span><div className="balance"><b>{amount(state?.balance||account?.balance||'0',locale)}</b><small>USDT</small></div><div className="finance-primary-actions"><button className="primary" disabled={!account||!verified||!state?.depositsEnabled} onClick={()=>setStep('AMOUNT')}>{t('Пополнить')}</button><button className="secondary" onClick={onWithdraw}>{t('Вывести')}</button></div><p>{t('Заблокировано в Base Epoch')}: {account?.lockedBase||'0'} USDT · {t('Капитализировано внутри активного Epoch')}: {account?.lockedCompound||'0'} USDT</p><p>{t('Фактические USDT хранятся на кошельке сервиса. Баланс здесь — учётная запись.')}</p></article><article className="panel wallet-connect"><span>{t('Подключённый кошелёк')}</span><b>{wallet?short(wallet.account.address):t('Не подключён')}</b><small>{wallet?.account.chain==='-239'?'TON Mainnet':wallet?t('Неверная сеть'):t('Требуется TON Proof')} · {verified?t('Подтверждён'):t('Не подтверждён')}{verified&&state?.walletVersion?' · '+state.walletVersion:''}</small><p>{verified?t('Адрес подтверждён через TON Proof.'):t('Подтвердите владение адресом для пополнения.')}</p>{!wallet||!verified?<button className="secondary" disabled={busy||!restored} onClick={()=>void connect()}>{t(wallet?'Подтвердить кошелёк':'Подключить TON-кошелёк')}</button>:<button className="secondary" onClick={()=>void ui.disconnect()}>{t('Отключить кошелёк')}</button>}</article></div>
-  <div className="wallet-guard panel"><Icon name="shield" size={19}/><div><b>{t('Новые пополнения приостановлены')}</b><p>{t('Оферта указывает TRC-20/BEP-20, а этот кошелёк работает в TON. Не отправляйте средства по старым реквизитам. Ранее созданные счета и платежи остаются в истории.')}</p></div></div>
   {!account?<button className="primary" onClick={onLogin}>{t('Войти через Telegram')}</button>:step==='AMOUNT'?
    <div className="panel wallet-payment"><button className="text-button" onClick={()=>setStep('LIST')}>← {t('Назад')}</button><h2>{t('Пополнить USDT')}</h2>
     <dl><div><dt>{t('Актив')}</dt><dd>USDT</dd></div><div><dt>{t('Сеть')}</dt><dd>TON Mainnet</dd></div><div><dt>{t('Получатель')}</dt><dd>AetherMind Treasury</dd></div></dl>
@@ -110,12 +103,9 @@ export default function WalletView({account,onRefresh,onLogin,onSupport,onWithdr
     {selected.status==='PENDING'&&manualStandard&&!signedBoc.current&&!selected.gaslessSigned&&standard&&<><button className="secondary" disabled={busy} onClick={()=>void standardPay()}>{t('Оплатить обычным способом через GRAM')}</button>{quote&&!signUnsupported&&<button className="text-button" disabled={busy} onClick={()=>setStep('GASLESS_REVIEW')}>{t('Повторить газлесс-подпись')}</button>}</>}
     {selected.status==='PENDING'&&(signedBoc.current||selected.gaslessSigned)&&<><p className="fine">{t('После подписи не отправляйте платёж повторно обычным способом. Ожидайте зачисления или напишите в поддержку.')}</p>{signedBoc.current&&quote&&<button className="secondary" disabled={busy} onClick={()=>void retryGasless()}>{t('Повторить отправку подписи')}</button>}</>}
     {selected.status==='PENDING'&&!signedBoc.current&&!selected.gaslessSigned&&<><p className="fine">{t('Если перевод уже отправлен, отмена счёта не остановит платёж: поступление проверит сервис.')}</p><button className="secondary" disabled={busy} onClick={()=>void cancel()}>{t('Отменить счёт')}</button></>}
-    <button className="secondary" onClick={()=>{setStep('LIST');void refresh()}}>{t('История операций')}</button>
+    <button className="secondary" onClick={()=>{setStep('LIST');void refresh()}}>{t('К финансам')}</button>
    </div>:<div className="wallet-actions"><button className="primary" disabled={!verified||!state?.depositsEnabled} onClick={()=>setStep('AMOUNT')}><Icon name="plus"/> {t('Пополнить USDT')}</button><p>{state?.depositsEnabled?t('Пополнение доступно через TON Connect.'):t('Пополнение временно недоступно. Обратитесь в поддержку.')}</p></div>}
   {(account?.user.isOwner||state?.paymentCanary)&&wallet&&<details className="panel wallet-diagnostics"><summary>TON Connect · diagnostics</summary><pre>{JSON.stringify({appName:wallet.device.appName,appVersion:wallet.device.appVersion,chain:wallet.account.chain,features:wallet.device.features,walletVersion:state?.walletVersion,gaslessAvailable:state?.gaslessAvailable,supportsSignMessage:capabilities.supportsSignMessage,supportsStructuredJetton:capabilities.supportsStructuredJetton,selectedPaymentMode:quote&&!signUnsupported?'GASLESS':'STANDARD'},null,2)}</pre></details>}
-  {account&&<div className="panel wallet-guard"><Icon name="shield" size={19}/><div><b>{t('Вывод вручную')}</b><p>{t('Заявка резервирует сумму в учётном балансе. Оператор проверяет запрос и выполняет перевод вручную.')}</p><button className="secondary" onClick={onWithdraw}>{t('Создать заявку на вывод')}</button></div></div>}
-  <div className="section-title" ref={historyRef}><h2>{t('История операций')}</h2><button className="secondary" onClick={()=>setSubview('activity')}>{t('Все операции')}</button></div>
-  {!history.length?<div className="panel empty"><Icon name="wallet" size={30}/><h3>{t('Операций пока нет')}</h3><p>{t('Новые счета TON временно не создаются. История прежних платежей остаётся доступной.')}</p><button className="secondary" disabled={!verified||!state?.depositsEnabled} onClick={()=>setStep('AMOUNT')}>{t('Пополнить')}</button></div>:<div className="wallet-history">{history.map(item=><button className="panel" key={item.id} aria-expanded={selected?.id===item.id} onClick={()=>setSelected(selected?.id===item.id?null:item)}><span><b>{amount(item.amount,locale)} USDT · {t('Пополнение')}</b><small>TON Mainnet · {new Date(item.createdAt).toLocaleString(locale)}</small></span><span className={'wallet-status '+item.status.toLowerCase()}>{t(labels[item.status]||item.status)}</span></button>)}</div>}
   {selected&&<article className="panel wallet-details"><h3>{t('Детали платежа')}</h3><dl><div><dt>Invoice ID</dt><dd>{selected.invoiceId}</dd></div><div><dt>{t('Сумма')}</dt><dd>{amount(selected.amount,locale)} USDT</dd></div><div><dt>{t('Статус')}</dt><dd>{t(labels[selected.status]||selected.status)}</dd></div><div><dt>{t('Сеть')}</dt><dd>TON</dd></div><div><dt>{t('Кошелёк')}</dt><dd>{short(selected.sender)}</dd></div><div><dt>{t('Создан')}</dt><dd>{new Date(selected.createdAt).toLocaleString(locale)}</dd></div><div><dt>{t('Подтверждён')}</dt><dd>{selected.confirmedAt?new Date(selected.confirmedAt).toLocaleString(locale):'—'}</dd></div>{selected.txHash&&<div><dt>Transaction hash</dt><dd><a href={'https://tonviewer.com/transaction/'+selected.txHash} target="_blank" rel="noopener noreferrer">{short(selected.txHash)} ↗</a></dd></div>}</dl>{selected.status==='PENDING'&&!selected.gaslessSigned&&!signedBoc.current&&<button className="secondary" disabled={busy} onClick={()=>void cancel()}>{t('Отменить счёт')}</button>}<button className="secondary" onClick={()=>onSupport({referenceType:'DEPOSIT',referenceId:selected.id,invoiceId:selected.invoiceId})}>{t('Сообщить о проблеме')}</button></article>}
  </section>;
 }

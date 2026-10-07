@@ -40,11 +40,11 @@ test('stage 2 migration is additive and preserves previous user, ticket and ledg
 
 test('withdrawal input accepts only a checksum-valid TON Mainnet friendly address and exact USDT units',()=>{
  const address='UQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH';
- const input={asset:'USDT',network:'TON',destinationAddress:address,amount:'1.000001',idempotencyKey:randomUUID()};
- assert.equal(parseWithdrawal(input).amount,1000001n);
+ const input={asset:'USDT',network:'TON',destinationAddress:address,amount:'10.000001',idempotencyKey:randomUUID()};
+ assert.equal(parseWithdrawal(input).amount,10000001n);
  assert.equal(destination(address),address);
  for(const invalid of ['0:'+'a'.repeat(64),address.slice(0,-1)+'A','kQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH'])assert.throws(()=>destination(invalid));
- for(const amount of ['0','-1','1.0000001','NaN'])assert.throws(()=>parseWithdrawal({...input,amount}));
+ for(const amount of ['0','-1','1.0000001','9.999999','NaN'])assert.throws(()=>parseWithdrawal({...input,amount}));
  assert.throws(()=>parseWithdrawal({...input,network:'TRC20'}));
 });
 

@@ -4,6 +4,7 @@ import type {PrismaClient,TonDeposit} from '@prisma/client';
 import {Address} from '@ton/ton';
 import {tonConfig,usdtString,usdtUnits,friendly,attachForUser,structuredForUser,paymentCanary,depositAccessAllows} from '../ton/config.js';
 import {notify} from '../production.js';
+import {offerTariffs} from '../offer.js';
 import {TonCenter} from '../ton/center.js';
 import {buildJettonTransfer,buildStructuredJettonTransfer} from '../ton/jetton.js';
 import {verifyTonProof,type ProofInput} from '../ton/proof.js';
@@ -24,7 +25,7 @@ export async function treasuryReady(fresh=false){
 const hash=(nonce:string)=>createHash('sha256').update(nonce).digest('hex');
 const maxAge=20*60*1000;
 
-export function safeDeposit(row:TonDeposit){const meta=row.metadata,gasless=meta&&typeof meta==='object'&&!Array.isArray(meta)&&'gasless' in meta?meta.gasless:null;return {id:row.id,invoiceId:row.invoiceId,asset:'USDT',network:'TON',amount:usdtString(row.requestedMicros),receivedAmount:row.receivedMicros===null?null:usdtString(row.receivedMicros),status:row.status,sender:friendly(row.senderAddress),recipient:friendly(row.recipientAddress),jettonMaster:friendly(row.jettonMaster),txHash:row.txHash,traceId:row.traceId,gaslessSigned:!!(gasless&&typeof gasless==='object'&&!Array.isArray(gasless)&&'externalBoc' in gasless),createdAt:row.createdAt,expiresAt:row.expiresAt,confirmedAt:row.confirmedAt,creditedAt:row.creditedAt};}
+export function safeDeposit(row:TonDeposit){const meta=row.metadata,gasless=meta&&typeof meta==='object'&&!Array.isArray(meta)&&'gasless' in meta?meta.gasless:null;return {id:row.id,invoiceId:row.invoiceId,contractReference:meta&&typeof meta==='object'&&!Array.isArray(meta)&&'contractReference' in meta?meta.contractReference:null,asset:'USDT',network:'TON',amount:usdtString(row.requestedMicros),receivedAmount:row.receivedMicros===null?null:usdtString(row.receivedMicros),status:row.status,sender:friendly(row.senderAddress),recipient:friendly(row.recipientAddress),jettonMaster:friendly(row.jettonMaster),txHash:row.txHash,traceId:row.traceId,gaslessSigned:!!(gasless&&typeof gasless==='object'&&!Array.isArray(gasless)&&'externalBoc' in gasless),createdAt:row.createdAt,expiresAt:row.expiresAt,confirmedAt:row.confirmedAt,creditedAt:row.creditedAt};}
 
 export class DepositsService {
  constructor(readonly db:PrismaClient){}
@@ -47,6 +48,7 @@ export class DepositsService {
    const owner=await tx.tonWallet.findUnique({where:{address:proof.address}});
    if(owner&&owner.userId!==userId)throw new ForbiddenException('Кошелёк привязан к другому аккаунту.');
    const wallet=await tx.tonWallet.upsert({where:{userId},create:{userId,address:proof.address,network:'TON',walletApp:String(input.walletApp||'').slice(0,100)||null,publicKey:proof.publicKey,walletVersion:proof.walletVersion,walletId:proof.walletId,verified:true},update:{address:proof.address,network:'TON',walletApp:String(input.walletApp||'').slice(0,100)||null,publicKey:proof.publicKey,walletVersion:proof.walletVersion,walletId:proof.walletId,verified:true,lastConnectedAt:new Date()}});
+   if(!owner||owner.address!==proof.address)await tx.audit.create({data:{actorId:userId,action:'WALLET_CONNECTED',targetId:proof.address}});
    return {address:friendly(wallet.address),network:'TON',verified:true,walletVersion:wallet.walletVersion};
   });
  }
@@ -72,6 +74,9 @@ export class DepositsService {
   let senderJetton;
   try{senderJetton=await center.jettonWallet(sender);}catch{throw new ServiceUnavailableException('Не удалось определить официальный USDT Jetton Wallet.');}
   const invoiceId='dep_'+randomBytes(16).toString('hex');
+  const selected=await this.db.user.findUnique({where:{id:userId},select:{selectedTariffId:true}});
+  const contractReference=offerTariffs.find(t=>t.nodeId===selected?.selectedTariffId&&t.available)?.contractReference;
+  if(!contractReference)throw new BadRequestException('Сначала выберите тариф: для инвойса нужен contractReference по п. 5.2 оферты.');
   const queryId=randomBytes(8).readBigUInt64BE().toString();
   const row=await this.db.$transaction(async tx=>{
    // Serialize invoice rate limits for this account; concurrent requests cannot bypass them.
@@ -81,7 +86,7 @@ export class DepositsService {
    const hour=new Date(Date.now()-3600000);
    if(await tx.tonDeposit.count({where:{userId,createdAt:{gte:hour}}})>=5)throw new BadRequestException('Слишком много счетов за час.');
    if(await tx.tonDeposit.count({where:{userId,status:'PENDING',expiresAt:{gt:new Date()}}})>=1)throw new BadRequestException('Сначала завершите или отмените предыдущий счёт.');
-   const created=await tx.tonDeposit.create({data:{invoiceId,userId,network:'TON',asset:'USDT',senderAddress:sender.toRawString(),recipientAddress:config.treasury.toRawString(),jettonMaster:config.master.toRawString(),requestedMicros:amount,expiresAt:new Date(Date.now()+maxAge),queryId,metadata:{standardAttachNano:attachForUser(config,userId).toString(),notificationForwardNano:config.notificationForwardNano.toString()}}});
+   const created=await tx.tonDeposit.create({data:{invoiceId,userId,network:'TON',asset:'USDT',senderAddress:sender.toRawString(),recipientAddress:config.treasury.toRawString(),jettonMaster:config.master.toRawString(),requestedMicros:amount,expiresAt:new Date(Date.now()+maxAge),queryId,metadata:{contractReference,standardAttachNano:attachForUser(config,userId).toString(),notificationForwardNano:config.notificationForwardNano.toString()}}});
    await notify(tx,{userId,type:'DEPOSIT_CREATED',title:'Счёт на пополнение создан',message:usdtString(amount)+' USDT · TON',referenceType:'DEPOSIT',referenceId:created.id,dedupeKey:'deposit:'+created.id+':CREATED'});
    return created;
   });

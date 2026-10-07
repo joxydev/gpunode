@@ -10,8 +10,8 @@ function quote(days:number,at:number,compoundEnabled=false){
 }
 test('early fee boundaries use completed 24-hour periods and actual epoch end',()=>{
  for(const [days,steps] of [
-  [30,[[0,1500],[13*DAY_MS,1500],[14*DAY_MS-1,1500],[14*DAY_MS,700],[28*DAY_MS,700],[29*DAY_MS-1,700]]],
-  [60,[[0,1500],[13*DAY_MS,1500],[14*DAY_MS,700],[28*DAY_MS,700],[29*DAY_MS-1,700],[29*DAY_MS,300],[44*DAY_MS,300],[58*DAY_MS,300]]],
+  [30,[[0,1500],[13*DAY_MS,1500],[14*DAY_MS-1,1500],[14*DAY_MS,700],[28*DAY_MS,700],[29*DAY_MS-1,700],[29*DAY_MS,700],[30*DAY_MS-1,700]]],
+  [60,[[0,1500],[13*DAY_MS,1500],[14*DAY_MS,700],[28*DAY_MS,700],[29*DAY_MS-1,700],[29*DAY_MS,300],[44*DAY_MS,300],[58*DAY_MS,300],[59*DAY_MS,300],[60*DAY_MS-1,300]]],
   [90,[[0,1500],[13*DAY_MS,1500],[14*DAY_MS,700],[28*DAY_MS,700],[29*DAY_MS,300],[58*DAY_MS,300],[59*DAY_MS-1,300],[59*DAY_MS,150],[74*DAY_MS,150],[88*DAY_MS,150]]]
  ] as const)for(const [at,bps] of steps)assert.equal(quote(days,at).feeBps,bps,`${days} days at ${at}`);
  for(const days of [30,60,90]){
