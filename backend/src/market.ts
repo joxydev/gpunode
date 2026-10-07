@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {offerTariffs} from './offer.js';
 export type Query = <T = Record<string, any>>(sql:string, params?:unknown[]) => Promise<T[]>;
 export type CatalogRow = {id:string;name:string;category:string;tier_level:number;chip:string;precision_label:string;workload:string;price_usdt:string;daily_yield_percent:string;compound_boost_percent:string|null;tflops_power:number;total_supply:number;available_supply:number;supply_known:boolean;contract_days:number;max_per_user:number;image_url:string;is_active:boolean;is_experimental:boolean;contract_reference:string|null};
 export const MARKET_VERSION='offer-88-2026-ai';
@@ -15,16 +16,29 @@ export function fixed(value:bigint,places:number):string {
   const digits=value.toString().padStart(places+1,'0');
   return digits.slice(0,-places)+'.'+digits.slice(-places);
 }
-export function present(row:CatalogRow) {
+export function catalogueTermsMatch(row:CatalogRow){
+  const tariff=offerTariffs.find(item=>item.nodeId===row.id&&item.available);
+  return Boolean(tariff&&row.is_active&&!row.is_experimental&&row.contract_reference===tariff.contractReference&&
+    scaled(String(row.price_usdt),2)===BigInt(tariff.depositUsdt)*100n&&row.contract_days===tariff.days&&
+    scaled(String(row.daily_yield_percent),2)===scaled(tariff.dailyPercent!,2)&&
+    row.compound_boost_percent!==null&&scaled(String(row.compound_boost_percent),2)===scaled(tariff.compoundPercent!,2));
+}
+export function catalogueAvailability(row:CatalogRow,ordersReady:boolean){
+  if(row.is_experimental)return 'CONCEPT';
+  if(!catalogueTermsMatch(row)||!row.supply_known||row.total_supply<1)return 'UNCONFIGURED';
+  if(row.available_supply<1)return 'SOLD_OUT';
+  return ordersReady?'AVAILABLE':'PAUSED';
+}
+export function present(row:CatalogRow,ordersReady=false) {
   const priceCents=scaled(String(row.price_usdt),2),rateBps=scaled(String(row.daily_yield_percent),2);
   const dailyMicros=priceCents*rateBps;
-  const availability=row.is_experimental?'CONCEPT':'AVAILABLE';
+  const availability=catalogueAvailability(row,ordersReady);
   return {id:row.id,name:row.name,category:row.category,tier:row.tier_level,chip:row.chip,precision:row.precision_label,workload:row.workload,
     priceUsdt:fixed(priceCents,2),dailyPercent:row.is_experimental?null:fixed(rateBps,2),dailyUsdt:row.is_experimental?null:fixed(dailyMicros,6),
     compoundPercent:row.is_experimental||row.compound_boost_percent===null?null:fixed(scaled(String(row.compound_boost_percent),2),2),
     termPercent:row.is_experimental?null:fixed(rateBps*BigInt(row.contract_days),2),
     termYieldUsdt:row.is_experimental?null:fixed(dailyMicros*BigInt(row.contract_days),6),tflops:row.tflops_power,contractDays:row.contract_days,
-    availability,image:row.image_url,experimental:row.is_experimental,termsStatus:'PUBLIC_OFFER',canBuy:false,canSelect:!row.is_experimental};
+    availability,image:row.image_url,experimental:row.is_experimental,termsStatus:'PUBLIC_OFFER',canBuy:availability==='AVAILABLE',canSelect:!row.is_experimental};
 }
 export function catalogueQuery(category='ALL',sort='tier_asc') {
   if(!['ALL','CONSUMER','ENTERPRISE','QUANTUM'].includes(category))throw Error('Некорректная категория.');

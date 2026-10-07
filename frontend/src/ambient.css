@@ -1,0 +1,8 @@
+/* Single ambient layer. The desktop artwork is dark in its centre, so the first
+   screen also has a cyan/violet glow and an independent core visual. */
+html{background:#07080e}
+body{background-color:#07080e;background-image:radial-gradient(ellipse 42% 45% at 56% 22%,#075b7047,transparent 75%),radial-gradient(ellipse 38% 45% at 60% 74%,#68268b2c,transparent 78%),linear-gradient(180deg,#07080e30,#07080e7a 70%,#07080eab),url('/assets/ambient-desktop.webp');background-size:100% 100%,100% 100%,100% 100%,cover;background-position:center,center,center,center top;background-repeat:no-repeat;background-attachment:fixed}
+.app-shell .workspace.page-wallet{display:block;max-width:1320px}
+.app-shell .workspace>footer{display:flex;width:100%;margin-top:30px;min-height:44px;padding-bottom:0}
+@media(min-width:960px){.app-shell .workspace{padding-bottom:42px}}
+@media(max-width:600px){body{background-image:radial-gradient(ellipse 80% 36% at 50% 18%,#14617c48,transparent 78%),linear-gradient(180deg,#07080e3c,#07080e95 65%,#07080ed0),url('/assets/ambient-mobile.webp');background-size:100% 100%,100% 100%,auto 100dvh;background-position:center,center,center top;background-attachment:scroll,scroll,fixed}.app-shell .workspace.page-wallet{padding-bottom:calc(104px + env(safe-area-inset-bottom))}}

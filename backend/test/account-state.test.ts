@@ -15,4 +15,5 @@ test('next action uses exact ledger balance and prioritizes persisted request an
  assert.equal(nextAccountAction({...base,balanceMicros:50_000_000n}).kind,'ORDER_UNAVAILABLE');
  assert.equal(nextAccountAction({...base,balanceMicros:50_000_000n,purchasesEnabled:true,currentOfferAccepted:false}).kind,'CURRENT_OFFER_REQUIRED');
  assert.equal(nextAccountAction({...base,balanceMicros:50_000_000n,purchasesEnabled:true,currentOfferAccepted:true}).kind,'ORDER_READY');
+ assert.equal(nextAccountAction({...base,balanceMicros:50_000_000n,purchasesEnabled:true,stockAvailable:false,currentOfferAccepted:true}).kind,'ORDER_SOLD_OUT');
 });

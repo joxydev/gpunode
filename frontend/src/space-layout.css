@@ -1,6 +1,5 @@
 /* One static vector sky; no canvas loop, parallax, or animated background image. */
 html{background:#07080e}
-body{min-height:100dvh;background-color:#07080e;background-image:linear-gradient(180deg,#07080e12 0%,#07080ed9 85%,#07080e 100%),url('/assets/ambient-desktop.webp');background-position:center top;background-size:100% 1400px,cover;background-repeat:no-repeat;background-attachment:scroll,fixed}
 .app-shell{position:relative;z-index:1;width:100%;max-width:1540px;min-height:100dvh;margin-inline:auto;padding-inline:clamp(16px,3vw,44px)}
 .app-shell .workspace{width:100%;max-width:1320px;margin-inline:auto}
 .app-shell .panel{box-shadow:0 12px 44px #0306122e}
@@ -14,7 +13,6 @@ body{min-height:100dvh;background-color:#07080e;background-image:linear-gradient
 
 /* Welcome fills the browser, with artwork in its own quiet glass frame. */
 @media(min-width:960px){
- body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;background:radial-gradient(ellipse at 78% 28%,#00a9c633,transparent 36%),radial-gradient(ellipse at 10% 64%,#8a31b42b,transparent 39%);opacity:.15;animation:cosmic-glow 20s ease-in-out infinite alternate}
  .app-shell .topbar{height:78px}
  .app-shell .workspace{padding-top:30px}
  .app-shell .welcome-v2{width:100%;max-width:1320px;min-height:min(720px,calc(100dvh - 125px));margin:0 auto;padding:40px clamp(12px,2vw,35px);display:grid;grid-template-columns:minmax(0,1.05fr) minmax(400px,.95fr);grid-template-rows:repeat(8,min-content);align-content:center;align-items:center;column-gap:clamp(40px,5vw,105px);text-align:left}
@@ -50,8 +48,6 @@ body{min-height:100dvh;background-color:#07080e;background-image:linear-gradient
  .page-wallet>.section-title:not(:first-child),.page-wallet>.request,.page-wallet>.empty,.page-wallet>footer{grid-column:1/-1}
  .page-wallet>.section-title:not(:first-child){margin-bottom:0}
 }
-@keyframes cosmic-glow{from{opacity:.12}to{opacity:.29}}
-html[data-ambient-motion=paused] body::before{animation-play-state:paused}
 
 /* Profile keeps the current action above the fold and tucks settings away. */
 .profile-main{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,.92fr);gap:15px;align-items:start}
@@ -83,7 +79,6 @@ html[data-ambient-motion=paused] body::before{animation-play-state:paused}
 .profile-settings>summary::-webkit-details-marker{display:none}
 .profile-settings>summary svg{transition:transform .2s}
 .profile-settings[open]>summary svg{transform:rotate(90deg)}
-.profile-settings-body{border-top:1px solid #ffffff19;padding:2px 18px 16px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}
 .profile-settings .profile-language,.profile-settings .profile-legal{margin:0;border:0;background:transparent;padding:14px 0 0;box-shadow:none;backdrop-filter:none}
 .profile-settings .profile-legal{align-items:flex-start}
 .profile-settings .profile-legal p{overflow-wrap:anywhere}
@@ -97,7 +92,6 @@ html[data-ambient-motion=paused] body::before{animation-play-state:paused}
  .app-shell .market-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media(max-width:600px){
- body{background-image:linear-gradient(180deg,#07080e4d 0%,#07080edb 78%,#07080e 100%),url('/assets/ambient-mobile.webp');background-size:100% 850px,cover;background-position:center top,52% top;background-attachment:scroll,scroll}
  .app-shell .workspace{padding-top:15px;padding-bottom:calc(104px + env(safe-area-inset-bottom))}
  .app-shell .bottom-nav{padding-top:8px;padding-bottom:calc(7px + env(safe-area-inset-bottom))}
  .app-shell .bottom-nav button{min-height:52px;gap:5px;font-size:10px}
@@ -117,7 +111,6 @@ html[data-ambient-motion=paused] body::before{animation-play-state:paused}
  .profile-main .profile-tariff h2{font-size:17px}
  .profile-main .profile-test{padding:14px}
  .profile-main .profile-journey{padding:14px}
- .profile-settings-body{grid-template-columns:1fr;gap:0}
  .profile-settings .profile-legal{border-top:1px solid #ffffff15;margin-top:13px}
 }
 @media(max-width:380px){
@@ -128,10 +121,8 @@ html[data-ambient-motion=paused] body::before{animation-play-state:paused}
  .profile-main .profile-tariff h2{font-size:15px}
 }
 @media(max-width:355px){.profile-main .profile-overview{grid-template-columns:1fr}}
-@media(prefers-reduced-motion:reduce){.profile-settings>summary svg{transition:none}body::before{animation:none;opacity:.16}}
 
 /* Optimized ambient art across the application; content panels retain contrast. */
-body{background-color:#07080e;background-position:center top,center center;background-size:100% 1400px,cover;background-repeat:no-repeat;background-attachment:scroll,fixed}
 .modal.withdraw-modal{max-width:700px;padding:24px;scroll-behavior:smooth}
 .withdrawal-dialog{margin:0;max-width:none}.withdrawal-dialog .production-heading{padding-right:35px}
 .withdrawal-rules,.withdrawal-fee-schedule{border:1px solid #39567b;border-radius:14px;background:#111d30e8;padding:17px;margin:15px 0}
@@ -139,4 +130,3 @@ body{background-color:#07080e;background-position:center top,center center;backg
 .withdrawal-dialog a{color:#75eafa}.withdrawal-epoch{padding:15px;margin:10px 0}.withdrawal-epoch p{margin:9px 0 0;color:#ccd9ed}.withdrawal-epoch strong{color:#e9f8ff}
 .withdrawal-fee-schedule{scroll-margin-top:24px}.withdrawal-fee-schedule summary{cursor:pointer;font-weight:700;color:#a8f4ff}.withdrawal-fee-schedule ul{color:#cbd9ed;line-height:1.8;padding-left:22px;font-size:13px}
 .dashboard-journey details>summary{cursor:pointer;min-height:44px;padding:12px 0;color:#8fe7fa;font-weight:600}
-@media(max-width:600px){body{background-position:center top,center top;background-size:100% 850px,auto 100dvh;background-attachment:scroll,scroll}.modal.withdraw-modal{padding:18px 14px}}

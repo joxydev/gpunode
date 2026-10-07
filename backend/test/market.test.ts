@@ -18,6 +18,12 @@ test('market migration, exact arithmetic and ACID reservation groundwork',async(
   const offerRows=await q<CatalogRow>('SELECT * FROM gpu_catalog ORDER BY tier_level');
   const daily=['0.750000','7.500000','42.000000',null];
   offerRows.forEach((r,i)=>{assert.equal(present(r).dailyUsdt,daily[i]);assert.equal(present(r).canBuy,false);});
+  assert.equal(present(offerRows[0],true).availability,'UNCONFIGURED','unknown inventory must never be for sale');
+  const approved={...offerRows[0],supply_known:true,total_supply:2,available_supply:1,contract_reference:'REF-ALPHA-2026-01'};
+  assert.equal(present(approved,true).canBuy,true);
+  assert.equal(present({...approved,available_supply:0},true).availability,'SOLD_OUT');
+  assert.equal(present({...approved,contract_reference:'UNRELATED'},true).availability,'UNCONFIGURED');
+  assert.equal(present(approved,false).availability,'PAUSED');
   assert.equal(present(offerRows[0]).compoundPercent,'1.80');assert.equal(present(offerRows[0]).termPercent,'45.00');assert.equal(present(offerRows[3]).availability,'CONCEPT');assert.equal(present(offerRows[3]).canSelect,false);
   assert.throws(()=>catalogueQuery('ALL','price; DROP TABLE "User"'));
   const sorted=catalogueQuery('ENTERPRISE','price_desc');assert.equal((await q<CatalogRow>(sorted.sql,sorted.params))[0].id,'NODE_H100');

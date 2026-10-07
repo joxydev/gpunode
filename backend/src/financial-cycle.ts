@@ -2,7 +2,7 @@ import {BadRequestException,ConflictException,ForbiddenException,NotFoundExcepti
 import {Prisma,type PrismaClient,type UserLease} from '@prisma/client';
 import {financialAccess,financialFlag,financialOffer} from './financial-offer.js';
 import {accrueDay,calculateEarlyUnbondingFee,completedIntervals,COMPOUND_CYCLE_DAYS,DAY_MS} from './epoch-rules.js';
-import {fixed,scaled} from './market.js';
+import {catalogueTermsMatch,fixed,scaled} from './market.js';
 import {offerTariffs} from './offer.js';
 import {microsToDecimal} from './security.js';
 import {notify,type Tx} from './production.js';
@@ -55,6 +55,7 @@ async function restoreSupply(tx:Tx,row:UserLease,now:Date){
 }
 export async function purchase(db:PrismaClient,userId:string,input:Record<string,unknown>){
  flag('PURCHASES',userId);
+ flag('EPOCH_ACTIVATION');flag('ACCRUAL');
  const nodeId=input.nodeId,mode=input.compoundEnabled===true?'COMPOUND':'BASE',idempotencyKey=key(input.idempotencyKey);
  if(typeof nodeId!=='string'||!/^NODE_[A-Z0-9_]{2,32}$/.test(nodeId)||typeof input.compoundEnabled!=='boolean')throw new BadRequestException('Проверьте тариф и режим.');
  if(mode==='COMPOUND')flag('COMPOUND',userId);
@@ -72,8 +73,8 @@ export async function purchase(db:PrismaClient,userId:string,input:Record<string
   const baseRate=Number(scaled(catalog.dailyYieldPercent.toString(),2));
   const compoundRate=catalog.compoundBoostPercent===null?null:Number(scaled(catalog.compoundBoostPercent.toString(),2));
   // Neither an altered catalogue nor an unsigned draft can silently change the published tariff.
-  if(principal!==BigInt(tariff!.depositUsdt)*1000000n||catalog.contractDays!==tariff!.days||baseRate!==Number(scaled(tariff!.dailyPercent!,2))||
-   compoundRate!==Number(scaled(tariff!.compoundPercent!,2)))failure('CATALOG_TERMS_MISMATCH','unavailable');
+  if(!catalogueTermsMatch({id:catalog.id,name:catalog.name,category:catalog.category,tier_level:catalog.tierLevel,chip:catalog.chip,precision_label:catalog.precisionLabel,workload:catalog.workload,price_usdt:catalog.priceUsdt.toString(),daily_yield_percent:catalog.dailyYieldPercent.toString(),compound_boost_percent:catalog.compoundBoostPercent?.toString()??null,tflops_power:catalog.tflopsPower,total_supply:catalog.totalSupply,available_supply:catalog.availableSupply,supply_known:catalog.supplyKnown,contract_days:catalog.contractDays,max_per_user:catalog.maxPerUser,image_url:catalog.imageUrl,is_active:catalog.isActive,is_experimental:catalog.isExperimental,contract_reference:catalog.contractReference})||
+   principal!==BigInt(tariff!.depositUsdt)*1000000n||baseRate!==Number(scaled(tariff!.dailyPercent!,2))||compoundRate!==Number(scaled(tariff!.compoundPercent!,2)))failure('CATALOG_TERMS_MISMATCH','unavailable');
   if(catalog.availableSupply<1)failure('SOLD_OUT','conflict');
   if(await tx.userLease.count({where:{userId,status:{in:['PROVISIONING','ACTIVE','OVERCLOCKED']}}}))failure('ACTIVE_LEASE_EXISTS','conflict');
   if(await tx.rentalRequest.count({where:{userId,isTestOrder:false,leaseId:null,status:{in:['REQUESTED','REVIEWED']}}}))failure('ORDER_ALREADY_EXISTS','conflict');
