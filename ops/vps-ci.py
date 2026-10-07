@@ -93,7 +93,7 @@ try:
     # Financial tests accept the exact bundled PDF on the disposable cluster.
     # No live production users, balances or service flags are touched.
     env.update({
-        'FINANCIAL_CANARY_IDS': '55555,66666,77777,88888,99999',
+        'FINANCIAL_CANARY_IDS': '55555,66666,77777,88888,99999,910005',
         'FINANCIAL_PUBLIC_ACCESS': 'false',
         'ENABLE_PURCHASES': 'true',
         'ENABLE_EPOCH_ACTIVATION': 'true',
@@ -105,6 +105,8 @@ try:
     run(['node', 'ops/financial-integration.mjs'])
     run(['node', '--check', 'ops/epoch-integration.mjs'])
     run(['node', 'ops/epoch-integration.mjs'])
+    run(['node', '--check', 'ops/admin-credit-integration.mjs'])
+    run(['node', 'ops/admin-credit-integration.mjs'])
     run(['python3', 'ops/public-runtime-test.py'])
     run(['node', '--check', 'ops/public-runtime-check.mjs'])
     run(['node', '--check', 'ops/public-runtime-integration.mjs'])

@@ -15,7 +15,7 @@ export async function api<T=any>(path:string,body?:unknown,method=body?'POST':'G
     const original=typeof data.code==='string'&&financialErrors[data.code]?financialErrors[data.code]:typeof data.message==='string'?data.message:'Запрос не выполнен.';
     const field=original.match(/^Проверьте поле ([a-zA-Z]+)\.$/);
     const translated=language==='ru'?original:field?(language==='en'?`Check the ${field[1]} field.`:`Verifică câmpul ${field[1]}.`):(translations[original]||productionTranslations[original])?.[language==='en'?0:1]||( /[А-Яа-яЁё]/.test(original)?translations['Запрос не выполнен.'][language==='en'?0:1]:original);
-    throw Error(translated);
+    throw Object.assign(Error(translated),{status:response.status});
   }return data as T;
 }
 export function haptic(){try{window.Telegram?.WebApp.HapticFeedback?.impactOccurred('light');}catch{/* unsupported client */}}

@@ -3,11 +3,13 @@
 .stellar-scene{position:relative;width:min(100%,320px);aspect-ratio:1;margin:0 auto;isolation:isolate;pointer-events:none}
 .stellar-sky,.stellar-dimmer,.stellar-light,.stellar-flare{position:absolute;inset:0;pointer-events:none;transform:none}
 .stellar-sky{background:url('/assets/core.webp') center/100% 100% no-repeat}
-.stellar-dimmer{background:radial-gradient(circle at 50% 50%,#02040d 0 5%,rgba(2,4,13,.98) 8%,rgba(2,4,13,.82) 13%,rgba(2,4,13,.2) 18%,transparent 22%);opacity:.9;will-change:opacity}
-.stellar-light{background:radial-gradient(circle at 50% 50%,#efffff 0 1.2%,rgba(65,247,255,.92) 3.5%,rgba(0,240,255,.42) 8%,rgba(157,0,255,.2) 13%,transparent 21%);mix-blend-mode:screen;opacity:.08;will-change:opacity}
-.stellar-flare{inset:30%;background:linear-gradient(90deg,transparent 4%,rgba(0,240,255,.05) 43%,rgba(235,255,255,.86) 50%,rgba(157,0,255,.06) 57%,transparent 96%),linear-gradient(0deg,transparent 4%,rgba(157,0,255,.04) 43%,rgba(235,255,255,.72) 50%,rgba(0,240,255,.05) 57%,transparent 96%);mix-blend-mode:screen;mask-image:radial-gradient(circle,#000 0 7%,rgba(0,0,0,.78) 20%,transparent 68%);opacity:.04;will-change:opacity}
+.stellar-dimmer{background:radial-gradient(circle at 50% 50%,#02040d 0 5%,rgba(2,4,13,.98) 8%,rgba(2,4,13,.82) 13%,rgba(2,4,13,.2) 18%,transparent 22%);opacity:.9}
+.stellar-light{background:radial-gradient(circle at 50% 50%,#efffff 0 1.2%,rgba(65,247,255,.92) 3.5%,rgba(0,240,255,.42) 8%,rgba(157,0,255,.2) 13%,transparent 21%);mix-blend-mode:screen;opacity:.08}
+.stellar-flare{inset:30%;background:linear-gradient(90deg,transparent 4%,rgba(0,240,255,.05) 43%,rgba(235,255,255,.86) 50%,rgba(157,0,255,.06) 57%,transparent 96%),linear-gradient(0deg,transparent 4%,rgba(157,0,255,.04) 43%,rgba(235,255,255,.72) 50%,rgba(0,240,255,.05) 57%,transparent 96%);mix-blend-mode:screen;mask-image:radial-gradient(circle,#000 0 7%,rgba(0,0,0,.78) 20%,transparent 68%);opacity:.04}
 .stellar-visual .core-caption{bottom:3px;left:0;right:0;font-size:8px;letter-spacing:2px;display:flex;align-items:center;justify-content:center;gap:7px}
 .stellar-visual .core-caption i{width:5px;height:5px;border-radius:50%;background:#00f0ff;box-shadow:0 0 8px #00f0ff}
+/* Decorative cabinet illumination is desktop-only. Mobile retains static selection borders. */
+@media(min-width:769px){
 /* Very low-opacity illumination. Labels, geometry and interaction states remain stable. */
 .app-shell .primary{position:relative;isolation:isolate}
 .app-shell .primary:not(:disabled):not([aria-disabled=true])::after{content:'';position:absolute;inset:0;border-radius:inherit;background:linear-gradient(125deg,transparent 15%,#ffffff 50%,transparent 85%);opacity:.02;pointer-events:none;transform:none;animation:button-light 8.6s ease-in-out infinite}
@@ -21,6 +23,9 @@
 .app-shell .market-tabs button.selected::after{content:'';position:absolute;inset:0;border:1px solid #00f0ff;border-radius:inherit;opacity:.15;pointer-events:none;animation:node-light 10.6s ease-in-out infinite}
 @keyframes button-light{0%,100%{opacity:.015}48%{opacity:.09}72%{opacity:.035}}
 @keyframes node-light{0%,100%{opacity:.1}46%{opacity:.32}74%{opacity:.17}}
+}
 html[data-ambient-motion=paused] .app-shell .primary::after,html[data-ambient-motion=paused] .app-shell .market-card::after,html[data-ambient-motion=paused] .app-shell .market-tabs button::after{animation-play-state:paused!important}
 @media(prefers-reduced-motion:reduce){.app-shell .primary::after,.app-shell .market-card::after,.app-shell .market-tabs button::after{animation:none!important;opacity:.08!important}}
 @media(min-width:800px){.stellar-scene{width:350px}}
+
+@media(prefers-reduced-motion:no-preference){html[data-ambient-motion=running] .stellar-dimmer,html[data-ambient-motion=running] .stellar-light,html[data-ambient-motion=running] .stellar-flare{will-change:opacity}}

@@ -115,7 +115,7 @@ export async function activity(db:PrismaClient,userId:string,filter:string='ALL'
   ...audits.map(row=>({id:'audit:'+row.id,type:row.action,category:'ACCOUNT',amount:null,status:'COMPLETED',network:null,createdAt:row.createdAt,details:{node:row.action==='TARIFF_SELECTED'?row.targetId:undefined}})),
   ...deposits.map(row=>({id:'deposit:'+row.id,type:'DEPOSIT',amount:microsToDecimal(row.receivedMicros||row.requestedMicros),status:row.status,network:'TON',createdAt:row.createdAt,details:{invoiceId:row.invoiceId,wallet:friendly(row.senderAddress),txHash:row.txHash,confirmedAt:row.confirmedAt}})),
   ...withdrawals.map(row=>({id:'withdrawal:'+row.id,type:'WITHDRAWAL',amount:microsToDecimal(row.amountMicros),status:row.status,network:'TON',createdAt:row.createdAt,details:{destination:friendly(row.destinationAddress),txHash:row.txHash,fee:row.feeMicros===null?null:microsToDecimal(row.feeMicros),rejectionReason:row.rejectionReason}})),
-  ...entries.map(row=>({id:'ledger:'+row.id,type:row.kind==='REFUND'||row.kind==='PURCHASE_REFUND'?'REFUND':row.kind==='PURCHASE'?'PURCHASE':
+  ...entries.map(row=>({id:'ledger:'+row.id,type:row.kind==='REFUND'||row.kind==='PURCHASE_REFUND'?'REFUND':row.kind==='PURCHASE'?'PURCHASE':row.kind==='ADMIN_CREDIT'?'ADMIN_CREDIT':
    ['EPOCH_YIELD','EPOCH_COMPOUND_YIELD','LEASE_PRINCIPAL_RELEASE','EARLY_UNBONDING_FEE'].includes(row.kind)?row.kind:'ADJUSTMENT',
    category:['EPOCH_YIELD','EPOCH_COMPOUND_YIELD','LEASE_PRINCIPAL_RELEASE','EARLY_UNBONDING_FEE'].includes(row.kind)?'EPOCH':row.kind==='REFUND'||row.kind==='PURCHASE_REFUND'?'REFUND':row.kind==='PURCHASE'?'PURCHASE':'ADJUSTMENT',
    amount:microsToDecimal(row.amountMicros),status:'COMPLETED',network:null,createdAt:row.createdAt,details:{sourceId:row.sourceId}})),

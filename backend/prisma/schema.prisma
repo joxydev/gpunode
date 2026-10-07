@@ -5,6 +5,8 @@ datasource db {
   provider = "postgresql"
 }
 model User {
+  balanceCredits AdminBalanceCredit[] @relation("CreditRecipient")
+  creditsIssued AdminBalanceCredit[] @relation("CreditActor")
   id String @id
   name String
   username String?
@@ -140,6 +142,7 @@ model TicketMessage {
   @@map("ticket_messages")
 }
 model LedgerEntry {
+  adminCredit AdminBalanceCredit?
   id String @id @default(uuid())
   userId String
   user User @relation(fields: [userId], references: [id])
@@ -367,4 +370,23 @@ model UnmatchedTonDeposit {
   metadata Json @default("{}") @db.JsonB
   @@index([detectedAt])
   @@map("unmatched_ton_deposits")
+}
+
+// Independent owner adjustment. This is not a blockchain deposit.
+model AdminBalanceCredit {
+  id String @id @default(uuid()) @db.Uuid
+  actorId String
+  actor User @relation("CreditActor", fields: [actorId], references: [id], onDelete: Restrict)
+  userId String
+  user User @relation("CreditRecipient", fields: [userId], references: [id], onDelete: Restrict)
+  amountMicros BigInt
+  reason String @db.VarChar(500)
+  idempotencyKey String @db.Uuid
+  ledgerId String @unique
+  ledger LedgerEntry @relation(fields: [ledgerId], references: [id], onDelete: Restrict)
+  balanceBeforeMicros BigInt
+  balanceAfterMicros BigInt
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  @@unique([actorId, idempotencyKey])
+  @@index([userId, createdAt])
 }

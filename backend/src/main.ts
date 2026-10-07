@@ -15,6 +15,7 @@ import {journey,OFFER_DOCUMENT_SHA256,OFFER_NUMBER,OFFER_PUBLISHED_AT,OFFER_SIGN
 import {nextAccountAction} from './account-state.js';
 import {DepositsService,config as tonConfig,center as tonCenter} from './deposits/service.js';
 import {GaslessDeposits} from './deposits/gasless-service.js';
+import {creditBalance,presentCredit} from './admin-credit.js';
 import {activity,createWithdrawal,notify,presentWithdrawal,requestData,updateWithdrawal} from './production.js';
 import {activate,leaseId,presentLease,purchase,quoteUnbond,rejectProvisioning,unbond} from './financial-cycle.js';
 import {financialAccess,financialFlag,financialOffer} from './financial-offer.js';
@@ -321,6 +322,14 @@ class Api {
     const deposits=new Map<string,bigint>(depositGroups.map(row=>[row.userId,row._sum.amountMicros||0n]));
     return {items:rows.map(row=>({...row,invitedCount:referrals.get(row.id)||0,balance:microsToDecimal(balances.get(row.id)||0n),deposited:microsToDecimal(deposits.get(row.id)||0n)})),page:pageNumber,total,hasMore:skip+rows.length<total};
   }
+  @Post('admin/users/:id/balance/credits') async adminCredit(@Headers('authorization') auth:string,@Param('id') target:string,@Body() body:unknown){
+    const actorId=await owner(auth);return creditBalance(db,actorId,this.telegramId(target),body);
+  }
+  @Get('admin/users/:id/balance/credits') async adminCredits(@Headers('authorization') auth:string,@Param('id') target:string){
+    await owner(auth);const userId=this.telegramId(target);
+    if(!await db.user.findUnique({where:{id:userId},select:{id:true}}))throw new NotFoundException('Пользователь не найден.');
+    return {items:(await db.adminBalanceCredit.findMany({where:{userId},orderBy:[{createdAt:'desc'},{id:'desc'}],take:30})).map(presentCredit)};
+  }
   @Get('admin/users/:id') async userDetails(@Headers('authorization') auth:string,@Param('id') target:string,@QueryParam('refPage') refPage?:string){
     await owner(auth);const id=this.telegramId(target),referralPage=this.pageNumber(refPage);
     const user=await db.user.findUnique({where:{id},include:{selectedTariff:{select:{id:true,name:true,priceUsdt:true,contractDays:true}},offerAcceptances:{where:{version:OFFER_VERSION},select:{version:true,acceptedAt:true},take:1}}});
@@ -368,7 +377,14 @@ class Api {
   @Post('admin/tickets/:id/messages') async ownerMessage(@Headers('authorization') auth:string,@Param('id') target:string,@Body() body:Record<string,unknown>){
     const actorId=await owner(auth),id=uuid(target),message=field(body,'message',2000,2);return this.updateTicket(actorId,id,{status:'ANSWERED',reply:message});
   }
-  @Get('admin/audit') async audit(@Headers('authorization') auth:string,@QueryParam('page') page?:string){await owner(auth);const pageNumber=this.pageNumber(page);return {items:await db.audit.findMany({orderBy:[{createdAt:'desc'},{id:'desc'}],skip:pageNumber*30,take:30}),page:pageNumber};}
+  @Get('admin/audit') async audit(@Headers('authorization') auth:string,@QueryParam('page') page?:string){
+    await owner(auth);const pageNumber=this.pageNumber(page);
+    const items=await db.audit.findMany({orderBy:[{createdAt:'desc'},{id:'desc'}],skip:pageNumber*30,take:30});
+    const ids=items.filter(row=>row.action==='ADMIN_BALANCE_CREDIT').map(row=>row.targetId);
+    const credits=ids.length?await db.adminBalanceCredit.findMany({where:{id:{in:ids}}}):[];
+    const details=new Map(credits.map(row=>[row.id,presentCredit(row)]));
+    return {items:items.map(row=>({...row,credit:details.get(row.targetId)})),page:pageNumber};
+  }
   private pageNumber(page?:string){if(page!==undefined&&!/^[0-9]{1,5}$/.test(page))throw new BadRequestException('Некорректная страница.');return Number(page||0);}
   private telegramId(value:string){if(!/^[1-9][0-9]{0,19}$/.test(value))throw new BadRequestException('Некорректный Telegram ID.');return value;}
   private async equipmentNames(ids:string[]){const unique=[...new Set(ids)];if(!unique.length)return new Map<string,string>();const nodes=await db.gpuCatalog.findMany({where:{id:{in:unique}},select:{id:true,name:true}});return new Map(nodes.map(node=>[node.id,node.name]));}

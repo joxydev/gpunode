@@ -233,5 +233,12 @@ export const productionTranslations:Record<string,[string,string]>={
  'Последние неполные сутки Alpha и Beta до момента окончания Epoch рассчитываются по предыдущей ставке соответствующего тарифа.':['The final partial day for Alpha and Beta keeps the preceding plan fee until the Epoch actually ends.','Ultima zi parțială pentru Alpha și Beta păstrează comisionul anterior până la sfârșitul efectiv al Epoch.'],
  'После окончания Epoch — 0%':['After the Epoch — 0%','După Epoch — 0%'],
  'Пополнение USDT в сети TON выполняется по динамическому инвойсу после выбора тарифа.':['USDT TON deposits use a dynamic invoice after choosing a plan.','Depunerile USDT TON folosesc o factură dinamică după alegerea unui plan.'],
- 'Режим пополнений и состояние TON проверяйте в разделе «Платежи USDT». Заявки на вывод рассматриваются оператором.':['Check deposit mode and TON status under USDT Payments. An operator reviews withdrawal requests.','Verificați modul de depunere și starea TON la Plăți USDT. Operatorul analizează cererile de retragere.']
+ 'Режим пополнений и состояние TON проверяйте в разделе «Платежи USDT». Заявки на вывод рассматриваются оператором.':['Check deposit mode and TON status under USDT Payments. An operator reviews withdrawal requests.','Verificați modul de depunere și starea TON la Plăți USDT. Operatorul analizează cererile de retragere.'],
+ "Некорректные данные пополнения.":["Invalid credit data.", "Date de alimentare incorecte."],
+ "Укажите положительную сумму USDT: до 6 знаков после запятой.":["Enter a positive USDT amount with up to 6 decimal places.", "Indică o sumă USDT pozitivă cu până la 6 zecimale."],
+ "Сумма превышает допустимый диапазон.":["The amount exceeds the allowed range.", "Suma depășește intervalul permis."],
+ "Баланс превышает допустимый диапазон.":["The balance exceeds the allowed range.", "Soldul depășește intervalul permis."],
+ "Укажите причину пополнения: от 3 до 500 символов.":["Enter a credit reason with 3 to 500 characters.", "Indică motivul alimentării: între 3 și 500 de caractere."],
+ "Некорректный ключ операции.":["Invalid operation key.", "Cheie de operațiune incorectă."],
+ "Ключ операции уже использован для другого пополнения.":["The operation key was already used for a different credit.", "Cheia operațiunii a fost folosită pentru o altă alimentare."],
 };

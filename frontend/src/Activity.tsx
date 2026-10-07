@@ -5,7 +5,7 @@ import {useAppBack} from './navigation';
 import {activityLabels,shortHash,statusLabels,type ActivityItem} from './production-types';
 import './production.css';
 
-const filters=[['ALL','Все'],['ACCOUNT','Аккаунт'],['DEPOSIT','Пополнения'],['WITHDRAWAL','Выводы'],['PURCHASE','Тарифы'],['EPOCH','Epoch']] as const;
+const filters=[['ALL','Все'],['ACCOUNT','Аккаунт'],['DEPOSIT','Пополнения'],['WITHDRAWAL','Выводы'],['PURCHASE','Тарифы'],['ADJUSTMENT','Служебные пополнения'],['EPOCH','Epoch']] as const;
 export default function Activity({onBack,onSupport}:{onBack:()=>void;onSupport:(reference:{referenceType:'DEPOSIT'|'WITHDRAWAL';referenceId:string})=>void}){
  const {t,language}=useLanguage(),locale=intlLocale(language);
  const [filter,setFilter]=useState<string>('ALL'),[rows,setRows]=useState<ActivityItem[]|null>(null),[selected,setSelected]=useState<ActivityItem|null>(null),[error,setError]=useState('');
