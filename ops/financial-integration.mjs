@@ -4,6 +4,7 @@ import {createHmac,randomUUID} from 'node:crypto';
 import assert from 'node:assert/strict';
 import {createDb} from '../backend/dist/db-utc.js';
 import {activate,settleLease,unbond} from '../backend/dist/financial-cycle.js';
+import {offerTariffs} from '../backend/dist/offer.js';
 
 if(process.env.CI_INTEGRATION!=='1'||new URL(process.env.DATABASE_URL).pathname!=='/aethermind_ci'||
  process.env.FINANCIAL_PUBLIC_ACCESS!=='false')throw Error('Financial fixture requires isolated PostgreSQL and private canary');
@@ -32,7 +33,7 @@ async function rows(leaseId){return db.ledgerEntry.findMany({where:{sourceId:{st
 async function balance(userId){return (await db.ledgerEntry.aggregate({where:{userId:String(userId)},_sum:{amountMicros:true}}))._sum.amountMicros||0n;}
 try{
  let healthy=false;for(let i=0;i<50;i++){try{if((await call('/health')).status===200){healthy=true;break}}catch{}await new Promise(r=>setTimeout(r,200))}assert.ok(healthy);
- await db.gpuCatalog.updateMany({where:{id:{in:['NODE_4090','NODE_A100','NODE_H100']}},data:{supplyKnown:true,totalSupply:4,availableSupply:4,contractReference:'CI-ONLY-SYNTHETIC-STOCK'}});
+ for(const tariff of offerTariffs.filter(row=>row.available))await db.gpuCatalog.update({where:{id:tariff.nodeId},data:{supplyKnown:true,totalSupply:4,availableSupply:4,contractReference:tariff.contractReference}});
  const owner=await login(11111),alpha=await setup(55555,50);
  assert.equal((await call('/agreement/accept',owner,{version:'2026-09-14'})).status,201);
  const unfunded=await login(99999);await call('/agreement/accept',unfunded,{version:'2026-09-14'});
@@ -56,9 +57,7 @@ try{
  assert.equal((await db.leaseAccrual.count({where:{leaseId}})),2);
  assert.equal((await rows(leaseId)).filter(r=>r.kind==='EPOCH_YIELD').length,2);
  assert.equal(await balance(55555),1500000n);
- const withdrawal=await call('/v1/withdrawals',alpha,{asset:'USDT',network:'TON',destinationAddress:'UQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH',amount:'0.750000',idempotencyKey:randomUUID()});
- assert.equal(withdrawal.status,201);assert.equal(withdrawal.data.platformFee,'0.000000');assert.equal(withdrawal.data.networkFee,null);
- assert.equal((await call(`/v1/withdrawals/${withdrawal.data.id}/cancel`,alpha,{})).status,201);
+ assert.equal((await call('/v1/withdrawals',alpha,{asset:'USDT',network:'TON',destinationAddress:'UQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH',amount:'0.750000',idempotencyKey:randomUUID()})).status,400,'offer minimum is 10 USDT');
  const q=await call(`/v1/leases/${leaseId}/unbond/quote`,alpha);assert.equal(q.data.fee,'7.500000');
  const unbonds=await Promise.all(Array.from({length:2},()=>call(`/v1/leases/${leaseId}/unbond`,alpha,{idempotencyKey:randomUUID()})));
  assert.ok(unbonds.every(r=>r.status===201));
@@ -66,6 +65,11 @@ try{
  assert.equal((await rows(leaseId)).filter(r=>r.kind==='LEASE_PRINCIPAL_RELEASE').length,1);
  assert.equal(await balance(55555),44000000n,'Base income remains available after fee');
  assert.equal((await db.gpuCatalog.findUniqueOrThrow({where:{id:'NODE_4090'}})).availableSupply,4);
+ const withdrawal=await call('/v1/withdrawals',alpha,{asset:'USDT',network:'TON',destinationAddress:'UQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH',amount:'10.000000',idempotencyKey:randomUUID()});
+ assert.equal(withdrawal.status,201);assert.equal(withdrawal.data.platformFee,'0.000000');assert.equal(withdrawal.data.networkFee,null);
+ assert.equal(await balance(55555),34000000n);
+ assert.equal((await call(`/v1/withdrawals/${withdrawal.data.id}/cancel`,alpha,{})).status,201);
+ assert.equal(await balance(55555),44000000n,'cancel releases exactly one withdrawal reserve');
 
  const beta=await setup(66666,300);
  const pending=await call('/v1/market/buy',beta,{nodeId:'NODE_A100',compoundEnabled:false,idempotencyKey:randomUUID()});assert.equal(pending.status,201);
@@ -113,5 +117,6 @@ try{
  assert.equal((await call('/v1/notifications',alpha)).data.items.filter(row=>row.type==='ORDER_CREATED').length,1);
  console.log('FINANCIAL CI PASSED: purchase, owner actions, Base, Compound 30/60/90, unbond and ledger isolation.');
 }finally{
- await db.$disconnect();child.kill('SIGTERM');await new Promise(resolve=>child.once('exit',resolve));
+ await db.$disconnect();
+ if(child.exitCode===null&&child.signalCode===null){const done=new Promise(resolve=>child.once('exit',resolve));child.kill('SIGTERM');const timer=setTimeout(()=>child.kill('SIGKILL'),3000);await done;clearTimeout(timer)}
 }

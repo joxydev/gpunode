@@ -3,6 +3,7 @@ import {spawn} from 'node:child_process';
 import {createHmac,randomUUID} from 'node:crypto';
 import assert from 'node:assert/strict';
 import pg from 'pg';
+import {OFFER_VERSION,OFFER_DOCUMENT_SHA256} from '../backend/dist/offer.js';
 
 if(process.env.CI_INTEGRATION!=='1'||new URL(process.env.DATABASE_URL).pathname!=='/aethermind_ci')throw Error('Refusing to run integration tests against non-CI database');
 const port=process.env.CI_PORT||'3100';
@@ -11,7 +12,7 @@ const base='http://127.0.0.1:'+port+'/api';
 async function call(path,token,body,method=body?'POST':'GET'){const r=await fetch(base+path,{method,headers:{...(body?{'content-type':'application/json'}:{}),...(token?{authorization:'Bearer '+token}:{})},body:body?JSON.stringify(body):undefined});let data;try{data=await r.json()}catch{data={}}return {status:r.status,data}}
 async function login(id,startParam){const p=new URLSearchParams({auth_date:String(Math.floor(Date.now()/1000)),user:JSON.stringify({id,first_name:'CI user '+id})});if(startParam)p.set('start_param',startParam);const key=createHmac('sha256','WebAppData').update(process.env.BOT_TOKEN).digest();p.set('hash',createHmac('sha256',key).update([...p.entries()].sort(([a],[b])=>a<b?-1:1).map(([k,v])=>`${k}=${v}`).join('\n')).digest('hex'));const r=await call('/auth/telegram',null,{initData:p.toString()});assert.equal(r.status,201);return r.data.token}
 const agreement=token=>call('/agreement/accept',token,{version:'2026-09-14'});
-const offerBody={version:'88-2026-AI-2026-09-21',documentSha256:'b21177972dbdeedbea731e826b070ff7fb148ec1f96e7892536e67e40732ce88',readConfirmed:true};
+const offerBody={version:OFFER_VERSION,documentSha256:OFFER_DOCUMENT_SHA256,readConfirmed:true};
 const offer=token=>call('/offer/accept',token,offerBody);
 
 try{
@@ -85,7 +86,7 @@ try{
  assert.equal((await call('/admin/tickets/'+ticket.data.id,owner,{status:'IN_PROGRESS'},'PATCH')).status,200);assert.equal((await call('/admin/tickets/'+ticket.data.id,owner,{status:'CLOSED'},'PATCH')).status,200);assert.equal((await call('/support/'+ticket.data.id+'/messages',user,{message:'Too late'})).status,400);
  const closedThread=await call('/support/'+ticket.data.id,user);assert.equal(closedThread.data.status,'CLOSED');assert.deepEqual(closedThread.data.messages.map(message=>message.authorType),['USER','OWNER','USER']);
  const burst=await Promise.all(Array.from({length:7},()=>call('/support',other,{message:'Concurrent ticket test'})));assert.equal(burst.filter(r=>r.status===201).length,5);assert.equal(burst.filter(r=>r.status===400).length,2);
- assert.equal((await call('/payments',user,{})).status,503);assert.equal((await call('/withdrawals',user,{})).status,503);assert.equal((await call('/me',user)).data.balance,'12.000000');
+ assert.equal((await call('/payments',user,{})).status,400);assert.equal((await call('/withdrawals',user,{})).status,503);assert.equal((await call('/me',user)).data.balance,'12.000000');
  // The isolated CI API has no live TON Center key; invoice creation remains gated.
  for(const path of ['/v1/wallet','/v1/wallet/transactions','/v1/deposits','/v1/admin/deposits','/v1/admin/deposits/unmatched','/v1/ton/health'])assert.equal((await call(path)).status,401);
  assert.equal((await call('/v1/admin/deposits',user)).status,403);
@@ -176,11 +177,11 @@ try{
  const linked=await call('/support',user,context);assert.equal(linked.status,201);
  assert.equal((await call('/admin/tickets/'+linked.data.id,owner)).data.referenceId,newDeposit.id);
  const address='UQBHmBs516S1EKkDLj9K-hwCD-WlvRn05ieMiScK-pBBO8iH';
- const withdraw={asset:'USDT',network:'TON',destinationAddress:address,amount:'5.000001',idempotencyKey:randomUUID()};
- for(const invalid of [{...withdraw,destinationAddress:'invalid'},{...withdraw,network:'ERC20'},{...withdraw,amount:'1000'}])assert.equal((await call('/v1/withdrawals',user,invalid)).status,400);
+ const withdraw={asset:'USDT',network:'TON',destinationAddress:address,amount:'10.000001',idempotencyKey:randomUUID()};
+ for(const invalid of [{...withdraw,destinationAddress:'invalid'},{...withdraw,network:'ERC20'},{...withdraw,amount:'1000'},{...withdraw,amount:'9.999999'}])assert.equal((await call('/v1/withdrawals',user,invalid)).status,400);
  const [first,repeat]=await Promise.all([call('/v1/withdrawals',user,withdraw),call('/v1/withdrawals',user,withdraw)]);
  assert.equal(first.status,201);assert.equal(repeat.status,201);assert.equal(first.data.id,repeat.data.id);
- assert.equal((await call('/me',user)).data.balance,'57.999999');
+ assert.equal((await call('/me',user)).data.balance,'52.999999');
  assert.equal((await call('/v1/withdrawals',user,{...withdraw,idempotencyKey:randomUUID()})).status,400,'only one open request');
  assert.equal((await call('/v1/withdrawals/'+first.data.id,other)).status,404);
  assert.equal((await call('/v1/withdrawals/'+first.data.id+'/cancel',other,{})).status,404);
@@ -197,15 +198,15 @@ try{
  assert.equal((await call('/v1/withdrawals/'+second.data.id+'/cancel',user,{})).status,400);
  assert.equal((await call('/v1/admin/withdrawals/'+second.data.id,owner,{status:'REJECTED',rejectionReason:'Address review failed'},'PATCH')).status,200);
  assert.equal((await call('/me',user)).data.balance,'63.000000','rejection releases exact reserve');
- const third=await call('/v1/withdrawals',user,{...withdraw,amount:'7',idempotencyKey:randomUUID()});assert.equal(third.status,201);
+ const third=await call('/v1/withdrawals',user,{...withdraw,amount:'12',idempotencyKey:randomUUID()});assert.equal(third.status,201);
  const thirdId=third.data.id;
  assert.equal((await call('/v1/admin/withdrawals/'+thirdId,owner,{status:'UNDER_REVIEW'},'PATCH')).status,200);
  assert.equal((await call('/v1/admin/withdrawals/'+thirdId,owner,{status:'APPROVED',fee:'0.1'},'PATCH')).status,200);
  assert.equal((await call('/v1/admin/withdrawals/'+thirdId,owner,{status:'PROCESSING'},'PATCH')).status,200);
  assert.equal((await call('/v1/admin/withdrawals/'+thirdId,owner,{status:'COMPLETED'},'PATCH')).status,400,'hash required');
  assert.equal((await call('/v1/admin/withdrawals/'+thirdId,owner,{status:'COMPLETED',txHash:'1'.repeat(64)},'PATCH')).status,200);
- assert.equal((await call('/v1/withdrawals/'+thirdId,user)).data.netAmount,'6.900000');
- assert.equal((await call('/me',user)).data.balance,'56.000000','completion never deducts twice');
+ assert.equal((await call('/v1/withdrawals/'+thirdId,user)).data.netAmount,'11.900000');
+ assert.equal((await call('/me',user)).data.balance,'51.000000','completion never deducts twice');
  assert.equal((await call('/v1/activity?type=WITHDRAWAL',user)).data.items.filter(item=>item.id==='withdrawal:'+thirdId).length,1);
  assert.equal((await call('/admin/audit',owner)).data.items.some(row=>row.action==='WITHDRAWAL_COMPLETE'&&row.targetId===thirdId),true);
   assert.equal((await call('/v1/data-requests',user,{kind:'DATA_DELETION_REQUEST'})).status,201);
@@ -213,7 +214,7 @@ try{
   assert.equal((await call('/v1/data-requests',other)).data.items.length,0);
   assert.equal((await call('/v1/admin/data-requests',user)).status,403);
   assert.equal((await call('/v1/admin/data-requests',owner)).data.items.some(row=>row.user.id==='22222'),true);
- const status=(await call('/v1/status',user)).data;assert.equal(status.withdrawals,'MANUAL');assert.equal(status.orders,'PAUSED');assert.equal(status.accrual,'PAUSED');assert.equal('treasuryBalance' in status,false);
+ const status=(await call('/v1/status',user)).data;assert.equal(status.withdrawals,'OPERATIONAL');assert.equal(status.orders,'PAUSED');assert.equal(status.accrual,'PAUSED');assert.equal('treasuryBalance' in status,false);
  assert.equal((await call('/v1/admin/operations',user)).status,403);
  const operations=(await call('/v1/admin/operations',owner)).data;
  assert.equal(operations.withdrawalMode,'MANUAL');assert.equal(operations.depositMode,'disabled','isolated CI has no TON provider key');

@@ -9,7 +9,6 @@ import socket
 import subprocess
 import sys
 import tempfile
-import hashlib
 
 release = pathlib.Path(sys.argv[1]).resolve()
 if os.geteuid() == 0:
@@ -86,17 +85,14 @@ try:
         'BOT_WEBHOOK_SECRET': secrets.token_hex(24),
         'PUBLIC_URL': 'https://example.invalid',
         'APP_COMMIT': 'vps-ci-' + secrets.token_hex(16),
+        'OFFER_PUBLISHED_AT': '2020-01-01',
     })
     run(['npm', 'run', 'db:migrate'])
     run(['node', '--check', 'ops/integration.mjs'])
     run(['node', 'ops/integration.mjs'])
-    # Financial API runs against the disposable cluster with an explicit test-only
-    # unsigned hash fixture. No live production offer or service flags are touched.
+    # Financial tests accept the exact bundled PDF on the disposable cluster.
+    # No live production users, balances or service flags are touched.
     env.update({
-        'FINANCIAL_OFFER_APPROVED': 'true',
-        'FINANCIAL_OFFER_VERSION': '88-2026-AI-FINANCIAL-2020-01-01',
-        'FINANCIAL_OFFER_PUBLISHED_AT': '2020-01-01',
-        'FINANCIAL_OFFER_SHA256': hashlib.sha256((release / 'docs/OFFER_FINANCIAL_DRAFT.pdf').read_bytes()).hexdigest(),
         'FINANCIAL_CANARY_IDS': '55555,66666,77777,88888,99999',
         'FINANCIAL_PUBLIC_ACCESS': 'false',
         'ENABLE_PURCHASES': 'true',
@@ -107,6 +103,8 @@ try:
     })
     run(['node', '--check', 'ops/financial-integration.mjs'])
     run(['node', 'ops/financial-integration.mjs'])
+    run(['node', '--check', 'ops/epoch-integration.mjs'])
+    run(['node', 'ops/epoch-integration.mjs'])
     print('VPS CI PASSED: migrations + Nest/Prisma HTTP suite on isolated PostgreSQL.', flush=True)
 finally:
     if started or (data / 'postmaster.pid').exists():

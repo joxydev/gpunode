@@ -19,10 +19,12 @@ jobs:
       BOT_TOKEN: 123456:TEST_TOKEN_NOT_A_REAL_CREDENTIAL
       BOT_USERNAME: aethermind_ci_bot
       OWNER_TELEGRAM_ID: '11111'
+      TON_PAYMENT_TEST_TELEGRAM_IDS: '22222'
       SESSION_SECRET: ci_only_secret_which_is_long_enough_for_validation_not_for_production
       BOT_WEBHOOK_SECRET: ci_only_webhook_secret
       PUBLIC_URL: https://example.invalid
       CI_INTEGRATION: '1'
+      OFFER_PUBLISHED_AT: '2020-01-01'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,12 +35,29 @@ jobs:
       - run: npm run db:generate
       - run: npm test
       - run: npm run build
+      - name: Reproduce VPS database timezone
+        run: |
+          node --input-type=module - <<'JS'
+          import pg from 'pg';
+          const db=new pg.Client({connectionString:process.env.DATABASE_URL});
+          await db.connect();
+          try{await db.query("ALTER DATABASE aethermind_ci SET timezone TO 'Europe/Chisinau'")}finally{await db.end()}
+          JS
       - run: npm run db:migrate
       - run: node --check ops/integration.mjs
       - run: python3 -m py_compile ops/vps-ci.py
       - run: bash -n ops/language-deploy.sh ops/30_language_github.sh ops/31_language_vps.sh
-      - run: echo 'b21177972dbdeedbea731e826b070ff7fb148ec1f96e7892536e67e40732ce88  frontend/public/documents/public-offer-aethermind.pdf' | sha256sum --check --strict
+      - run: echo '71c911b32f1987d64a901f6c55d790db0c391cdc79ba657e80ab98df08c47041  frontend/public/documents/public-offer-aethermind.pdf' | sha256sum --check --strict
       - run: node ops/integration.mjs
+      - run: node ops/financial-integration.mjs && node ops/epoch-integration.mjs
+        env:
+          FINANCIAL_CANARY_IDS: '55555,66666,77777,88888,99999'
+          FINANCIAL_PUBLIC_ACCESS: 'false'
+          ENABLE_PURCHASES: 'true'
+          ENABLE_EPOCH_ACTIVATION: 'true'
+          ENABLE_ACCRUAL: 'true'
+          ENABLE_COMPOUND: 'true'
+          ENABLE_EARLY_UNBONDING: 'true'
       - run: bash -n ops/vps.sh
       - run: bash -n ops/market-deploy.sh
       - run: bash -n ops/entry-deploy.sh
