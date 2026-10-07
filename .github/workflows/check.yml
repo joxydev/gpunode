@@ -49,7 +49,8 @@ jobs:
       - run: bash -n ops/language-deploy.sh ops/30_language_github.sh ops/31_language_vps.sh
       - run: echo '71c911b32f1987d64a901f6c55d790db0c391cdc79ba657e80ab98df08c47041  frontend/public/documents/public-offer-aethermind.pdf' | sha256sum --check --strict
       - run: node ops/integration.mjs
-      - run: node ops/financial-integration.mjs && node ops/epoch-integration.mjs
+      - run: python3 ops/public-runtime-test.py
+      - run: node ops/financial-integration.mjs && node ops/epoch-integration.mjs && node ops/public-runtime-integration.mjs
         env:
           FINANCIAL_CANARY_IDS: '55555,66666,77777,88888,99999'
           FINANCIAL_PUBLIC_ACCESS: 'false'

@@ -1,0 +1,9 @@
+{
+  "TON_DEPOSIT_ACCESS": "public",
+  "ENABLE_TON_USDT_DEPOSITS": "true",
+  "OFFER_PUBLISHED_AT": "2026-09-30",
+  "FINANCIAL_PUBLIC_ACCESS": "true",
+  "ENABLE_PURCHASES": "true",
+  "ENABLE_EPOCH_ACTIVATION": "true",
+  "ENABLE_ACCRUAL": "true"
+}

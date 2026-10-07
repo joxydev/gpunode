@@ -41,3 +41,26 @@ previous release, environment and timer configuration. Database migrations,
 confirmed inventory and financial records are preserved. A database dump is
 kept in the private deployment backup for recovery; it is never restored over
 new transactions automatically.
+
+## API environment repair
+
+The next attempt completed the worker, but `/api/offer` returned a valid
+financial offer with `accrualEnabled=false`. This identifies a process flag
+mismatch, rather than the UUID or document failure. The logs alone do not name
+the VPS override responsible for it.
+
+Run `92_aethermind_runtime_github.sh`, then `93_aethermind_runtime_vps.sh`.
+The release keeps all homepage and background changes. A late service drop-in
+appends the shared environment and a root-only public release flag file for the
+API, TON watcher and Epoch worker. Controlled `UnsetEnvironment` entries are
+removed while unrelated entries remain. `APP_COMMIT` also comes from this final
+file, so an older environment file cannot supply the wrong release identifier.
+Environment file order is verified after daemon reload. Every service runs the
+same read-only flag/PDF preflight with its actual systemd environment.
+
+The deployment prints only whitelisted process flags before changes and checks
+the live API and watcher flags after restart. Secrets are never printed. The
+old flag file and each managed drop-in are backed up and restored on rollback.
+`ops/public-runtime-test.py` checks inherited overrides/removals and redaction;
+`ops/public-runtime-integration.mjs` rejects stale flags and verifies public
+offer, catalogue and ordinary participant profile on disposable PostgreSQL.

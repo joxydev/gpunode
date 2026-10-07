@@ -105,6 +105,10 @@ try:
     run(['node', 'ops/financial-integration.mjs'])
     run(['node', '--check', 'ops/epoch-integration.mjs'])
     run(['node', 'ops/epoch-integration.mjs'])
+    run(['python3', 'ops/public-runtime-test.py'])
+    run(['node', '--check', 'ops/public-runtime-check.mjs'])
+    run(['node', '--check', 'ops/public-runtime-integration.mjs'])
+    run(['node', 'ops/public-runtime-integration.mjs'])
     print('VPS CI PASSED: migrations + Nest/Prisma HTTP suite on isolated PostgreSQL.', flush=True)
 finally:
     if started or (data / 'postmaster.pid').exists():
