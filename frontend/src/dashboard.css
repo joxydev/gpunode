@@ -34,7 +34,7 @@
 .dashboard-start p{font-size:12px;line-height:1.55;margin:0}
 .dashboard-start li button{justify-self:start}
 .dashboard-tariff-grid,.dashboard-platform-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
-.dashboard-tariff-grid article{padding:20px;display:grid;align-content:start;justify-items:start;gap:9px;background:linear-gradient(155deg,#16253ae8,#111423e8)}
+.dashboard-tariff-grid article{min-width:0;padding:20px;display:grid;align-content:start;justify-items:start;gap:9px;background:linear-gradient(155deg,#16253ae8,#111423e8)}
 .dashboard-tariff-grid strong{font:700 29px 'Space Grotesk',sans-serif}
 .dashboard-tariff-grid strong small{font-size:13px;color:#8de6f1}
 .dashboard-tariff-grid p{margin:0}
@@ -48,7 +48,7 @@
 .dashboard-node p{margin:0;font-size:12px}
 .dashboard-node small{font-size:11px}
 .dashboard-node progress{width:100%;height:7px;accent-color:#00d5e6}
-.dashboard-platform-grid article{padding:23px;background:#111c2cdb}
+.dashboard-platform-grid article{min-width:0;padding:23px;background:#111c2cdb}
 .dashboard-platform-grid svg{color:#74e9f0}
 .dashboard-platform-grid h3{font-size:18px;margin:13px 0 9px}
 .dashboard-platform-grid p{margin:0;font-size:12px}
@@ -56,13 +56,14 @@
 .dashboard-faq details{border-top:1px solid #ffffff20;min-width:0}
 .dashboard-faq summary{padding:12px 0;cursor:pointer;min-height:44px;font-weight:600;font-size:13px}
 .dashboard-faq details p{font-size:12px;margin:0 0 7px}
-.dashboard-faq>.text-button{margin-top:10px}
+.dashboard-faq>.text-button{margin-top:10px;margin-right:18px}
 .dashboard-problem{padding:10px 14px;border:1px solid #97764a;background:#332915;border-radius:10px}
 
 @media(max-width:1050px){.dashboard-start ol{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 
-@media(max-width:700px){.dashboard-page{gap:16px}
+@media(max-width:700px){.dashboard-overview,.dashboard-tariff-grid,.dashboard-platform-grid{grid-template-columns:1fr}
+.dashboard-page{gap:16px}
 .dashboard-intro{grid-template-columns:1fr;padding:24px;gap:0}
 .dashboard-intro h2{font-size:clamp(29px,8vw,43px);margin:12px 0}
 .dashboard-overview{gap:9px}

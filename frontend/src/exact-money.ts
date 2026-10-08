@@ -7,8 +7,9 @@ export function normalizeCreditAmount(value:string){
 }
 export function exactMoney(value:string,locale:string){
  const match=/^(-?)(\d+)(?:\.(\d{1,6}))?$/.exec(value||'0');if(!match)return '—';
- const whole=new Intl.NumberFormat(locale).format(BigInt(match[1]+match[2]));
+ const formatter=new Intl.NumberFormat(locale),whole=formatter.format(BigInt(match[1]+match[2]));
  const fraction=(match[3]||'').replace(/0+$/,'');
  const separator=new Intl.NumberFormat(locale).formatToParts(1.1).find(p=>p.type==='decimal')?.value||'.';
- return whole+(fraction?separator+fraction:'');
+ const minus=match[1]&&BigInt(match[2])===0n&&/[1-9]/.test(fraction)?formatter.formatToParts(-1).find(p=>p.type==='minusSign')?.value||'-':'';
+ return minus+whole+(fraction?separator+fraction:'');
 }

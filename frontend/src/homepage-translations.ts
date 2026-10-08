@@ -189,6 +189,8 @@ export const homepageTranslations:Record<string,[string,string]>={
  "Основание":["Reason", "Motiv"],
  "Повтор использует тот же ключ операции и не создаёт второе зачисление.":["Retry uses the same operation key and does not create a second credit.", "Reîncercarea folosește aceeași cheie și nu creează o a doua alimentare."],
  "Проверить пополнение":["Review credit", "Verifică alimentarea"],
+ "Изменить":["Change", "Modifică"],
+ "Выбрано":["Selected", "Selectat"],
  "Отправка…":["Submitting…", "Se trimite…"],
  "Служебные пополнения":["Administrative credits", "Alimentări administrative"],
  "Служебных пополнений пока нет":["No administrative credits yet", "Nu există alimentări administrative încă"],

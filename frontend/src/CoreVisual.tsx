@@ -6,10 +6,10 @@ import './stellar.css';
 const CYCLE_MS=4400;
 
 /** The source artwork never moves. Three bounded overlays animate only the central star. */
-export default function CoreVisual(){
+export default function CoreVisual({activeView=true}:{activeView?:boolean}){
  const {t}=useLanguage();
  const dimmer=useRef<HTMLDivElement>(null),light=useRef<HTMLDivElement>(null),flare=useRef<HTMLDivElement>(null);
- const active=useAppActive();
+ const foreground=useAppActive(),active=foreground&&activeView;
  useEffect(()=>{
   let frame=0,phase=0,previous=performance.now();
   const reduced=matchMedia('(prefers-reduced-motion: reduce)');
