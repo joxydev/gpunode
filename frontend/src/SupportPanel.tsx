@@ -8,11 +8,11 @@ export const ticketLabels:Record<string,string>={OPEN:'Ожидает ответ
 export const supportCategories:Record<string,string>={QUESTION:'Вопрос',PAYMENT:'Платёж',WITHDRAWAL:'Вывод',ACCOUNT:'Аккаунт',WALLET:'Кошелёк',NODE:'Нода',TECHNICAL:'Техническая проблема',OTHER:'Другое',COMPLAINT:'Жалоба'};
 const date=(value:string,language:'ru'|'en'|'ro')=>new Date(value).toLocaleString(intlLocale(language),{dateStyle:'short',timeStyle:'short'});
 
-export default function SupportPanel({tickets,onRefresh,reference}:{tickets:Ticket[];onRefresh:()=>Promise<void>;reference?:{referenceType:'DEPOSIT'|'WITHDRAWAL';referenceId:string;invoiceId?:string}|null}){
+export default function SupportPanel({tickets,onRefresh,reference,initialTicketId}:{initialTicketId?:string;tickets:Ticket[];onRefresh:()=>Promise<void>;reference?:{referenceType:'DEPOSIT'|'WITHDRAWAL';referenceId:string;invoiceId?:string}|null}){
  const {t,language}=useLanguage();
  const [selected,setSelected]=useState(''),[detail,setDetail]=useState<Ticket|null>(null),[busy,setBusy]=useState(false),[loading,setLoading]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
  const request=useRef(0),sending=useRef(false);
- useAppBack(Boolean(selected),()=>{request.current++;setSelected('');setDetail(null)});
+ useAppBack(Boolean(selected),()=>{if(busy)return;request.current++;setSelected('');setDetail(null)});
  async function openTicket(id:string,markRead=true){
   const generation=++request.current;setSelected(id);setLoading(true);setError('');
   try{
@@ -22,6 +22,7 @@ export default function SupportPanel({tickets,onRefresh,reference}:{tickets:Tick
    if(markRead&&result.userUnread){await api('/support/'+id+'/read',{});if(generation===request.current){setDetail({...result,userUnread:false});await onRefresh()}}
   }catch(e){if(generation===request.current)setError((e as Error).message)}finally{if(generation===request.current)setLoading(false)}
  }
+ useEffect(()=>{if(initialTicketId)void openTicket(initialTicketId)},[initialTicketId]);
  useEffect(()=>{if(!selected)return;const summary=tickets.find(ticket=>ticket.id===selected);if(summary&&detail&&summary.updatedAt!==detail.updatedAt)void openTicket(selected,summary.userUnread)},[tickets,selected]);
  async function createTicket(form:HTMLFormElement){
   if(sending.current)return;const data=new FormData(form);sending.current=true;setBusy(true);setError('');setNotice('');
@@ -31,9 +32,9 @@ export default function SupportPanel({tickets,onRefresh,reference}:{tickets:Tick
   if(!selected||sending.current)return;const data=new FormData(form);sending.current=true;setBusy(true);setError('');
   try{await api('/support/'+selected+'/messages',{message:data.get('message')});form.reset();await onRefresh();await openTicket(selected,false)}catch(e){setError((e as Error).message)}finally{sending.current=false;setBusy(false)}
  }
- return <section className="support-center">
+ return <section className="support-center" aria-busy={busy}>
   <span className="eyebrow">{t("SUPPORT CENTER")}</span><h2>{t("Поддержка")}</h2><p>{t("Диалог сохраняется в аккаунте. После ответа оператора здесь появится уведомление; писать можно до закрытия тикета.")}</p>
-  {error&&<p role="alert" className="owner-error">{error}</p>}{notice&&<p role="status" className="owner-success">{notice}</p>}
+  {error&&<div role="alert" className="production-problem"><p>{error}</p><button className="secondary" disabled={busy||loading} onClick={()=>{if(selected)void openTicket(selected);else void onRefresh().then(()=>setError('')).catch(e=>setError((e as Error).message))}}>{t('Повторить')}</button></div>}{notice&&<p role="status" className="owner-success">{notice}</p>}
   {!selected&&<>
    <form className="support-new" onSubmit={e=>{e.preventDefault();void createTicket(e.currentTarget)}}>{reference&&<p className="fine">{t('Связано с операцией')}: {reference.invoiceId||reference.referenceId}</p>}<label>{t("Тип обращения")}<select name="category" defaultValue={reference?.referenceType==='DEPOSIT'?'PAYMENT':reference?.referenceType==='WITHDRAWAL'?'WITHDRAWAL':'QUESTION'}>{[['QUESTION','Вопрос'],['PAYMENT','Платёж'],['WITHDRAWAL','Вывод'],['ACCOUNT','Аккаунт'],['WALLET','Кошелёк'],['NODE','Нода'],['TECHNICAL','Техническая проблема'],['OTHER','Другое'],['COMPLAINT','Жалоба']].map(([id,label])=><option key={id} value={id}>{t(label)}</option>)}</select></label><label>{t("Тема")}<input name="subject" required minLength={3} maxLength={120} defaultValue={reference?reference.referenceType==='DEPOSIT'?t('Проблема с пополнением'):t('Проблема с выводом'):''} placeholder={t("Кратко опишите вопрос")}/></label><label>{t("Сообщение")}<textarea name="message" required minLength={5} maxLength={2000} placeholder={t("Что произошло и какая помощь нужна?")}/></label><button className="primary wide" disabled={busy}>{busy?t('Отправляем…'):t('Создать тикет')}</button></form>
    <div className="support-heading"><h3>{t("Мои обращения")}</h3><span>{tickets.length}</span></div>
@@ -41,7 +42,7 @@ export default function SupportPanel({tickets,onRefresh,reference}:{tickets:Tick
    <div className="support-list">{tickets.map(ticket=>{const last=ticket.messages?.[0];return <button className={`support-ticket ${ticket.userUnread?'unread':''}`} key={ticket.id} onClick={()=>void openTicket(ticket.id,ticket.userUnread)}><span className="support-ticket-top"><b>{ticket.subject}</b><i>{t(ticketLabels[ticket.status]||ticket.status)}</i></span><span>{last?.body||t('Откройте обращение')}</span><small>#{ticket.id.slice(0,8)} · {date(ticket.lastMessageAt,language)}</small></button>})}</div>
   </>}
   {selected&&<div className="support-thread">
-   <button className="owner-back" onClick={()=>{request.current++;setSelected('');setDetail(null)}}><Icon name="chevron" size={17}/> {t("Все обращения")}</button>
+   <button className="owner-back" onClick={()=>{if(busy)return;request.current++;setSelected('');setDetail(null)}}><Icon name="chevron" size={17}/> {t("Все обращения")}</button>
    {loading&&!detail?<p role="status">{t("Загружаем переписку…")}</p>:detail&&<>
     <div className="support-thread-head"><div><span>{t(supportCategories[detail.category]||'Вопрос')} · #{detail.id.slice(0,8)}</span><h3>{detail.subject}</h3>{detail.referenceType&&detail.referenceId&&<small>{t('Связано с операцией')}: {t(detail.referenceType==='DEPOSIT'?'Пополнение':'Вывод')} · {detail.referenceId}</small>}</div><i>{t(ticketLabels[detail.status])}</i></div>
     <div className="support-messages" aria-live="polite">{detail.messages.map(message=><article className={`support-message ${message.authorType==='OWNER'?'operator':'customer'}`} key={message.id}><b>{message.authorType==='OWNER'?t('Поддержка AetherMind'):t('Вы')}</b><p>{message.body}</p><time>{date(message.createdAt,language)}</time></article>)}</div>

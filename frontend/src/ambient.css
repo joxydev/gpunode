@@ -1,12 +1,12 @@
-/* Single ambient layer. The desktop artwork is dark in its centre, so the first
-   screen also has a cyan/violet glow and an independent core visual. */
-html{background:#07080e}
-body{background-color:#07080e;background-image:radial-gradient(ellipse 42% 45% at 56% 22%,#075b7047,transparent 75%),radial-gradient(ellipse 38% 45% at 60% 74%,#68268b2c,transparent 78%),linear-gradient(180deg,#07080e30,#07080e7a 70%,#07080eab),url('/assets/ambient-desktop.webp');background-size:100% 100%,100% 100%,100% 100%,cover;background-position:center,center,center,center top;background-repeat:no-repeat;background-attachment:fixed}
-.app-shell .workspace.page-wallet{display:block;max-width:1320px}
-.app-shell .workspace>footer{display:flex;width:100%;margin-top:30px;min-height:44px;padding-bottom:0}
-@media(min-width:960px){.app-shell .workspace{padding-bottom:42px}}
-/* Mobile artwork scrolls with the document: no viewport-sized fixed paint layer. */
-@media(max-width:768px){
- body{background-image:linear-gradient(180deg,#07080e40,#07080ec0),url('/assets/ambient-mobile.webp');background-size:100% 900px,100% auto;background-position:center top;background-attachment:scroll;background-repeat:no-repeat}
- .app-shell .workspace.page-wallet{padding-bottom:calc(104px + env(safe-area-inset-bottom))}
+/* One finite static accent fading into the page colour; no fixed image layer. */
+body {
+  background-color: var(--color-bg);
+  background-image: radial-gradient(ellipse 700px 420px at 12% 0, #17495932, transparent 75%),
+    radial-gradient(ellipse 640px 380px at 100% 0, #45347422, transparent 76%);
+  background-repeat: no-repeat;
+  background-size: 100% 500px;
+  background-attachment: scroll;
+}
+@media (max-width: 1023px) {
+  .panel, .app-nav, .modal-backdrop, .market-dialog, .owner-drawer-backdrop { backdrop-filter: none; }
 }

@@ -27,7 +27,7 @@ export default function OwnerCredit({ownerId,user,balance,onBusy,onCredited}:Pro
   }catch(e){setError((e as Error).message);if([400,404,409].includes((e as Error&{status?:number}).status||0)){request.current=null;try{sessionStorage.removeItem(storageKey)}catch{}setReview(false)}}finally{sending.current=false;setBusy(false);onBusy(false)}
  }
  const reset=()=>{request.current=null;setReceipt(null);setAmount('');setReason('');setReview(false);setError('');setOpen(true)};
- return <section className="owner-credit panel" aria-labelledby="owner-credit-title">
+ return <section className="owner-credit panel" aria-labelledby="owner-credit-title" aria-busy={busy}>
   <h3 id="owner-credit-title">{t('Пополнить баланс')}</h3><p>{t('Зачисление на доступный баланс. Это служебная операция, отдельная от перевода TON.')}</p>
   {!open?<button className="secondary" onClick={()=>setOpen(true)}>{t('Пополнить баланс')}</button>:<>
    <dl className="owner-credit-recipient"><div><dt>{t('Получатель')}</dt><dd>{user.name}{user.username?' · @'+user.username:''} · ID {user.id}</dd></div><div><dt>{t('Доступный баланс')}</dt><dd>{exactMoney(balance,locale)} USDT</dd></div></dl>

@@ -1,0 +1,33 @@
+:root {
+  --color-bg: #080d17;
+  --color-surface: #111b2c;
+  --color-surface-raised: #19263a;
+  --color-border: #2a3b52;
+  --color-control-border: #667e9e;
+  --color-text: #ecf4ff;
+  --color-text-muted: #a0b0c5;
+  --color-primary: #26e6ff;
+  --color-secondary: #a28aff;
+  --color-success: #4de2ac;
+  --color-warning: #f4b45a;
+  --color-danger: #ff657e;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-control: 14px;
+  --radius-tile: 18px;
+  --radius-card: 22px;
+  --font-heading: 'Space Grotesk', Inter, system-ui, sans-serif;
+  --cyan: var(--color-primary);
+  --violet: var(--color-secondary);
+  --muted: var(--color-text-muted);
+  --border: var(--color-border);
+  --app-safe-top: env(safe-area-inset-top, 0px);
+  --app-safe-right: env(safe-area-inset-right, 0px);
+  --app-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --app-safe-left: env(safe-area-inset-left, 0px);
+  color-scheme: dark;
+}

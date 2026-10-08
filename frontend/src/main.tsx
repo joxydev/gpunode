@@ -1,4 +1,15 @@
-import React from 'react';import{createRoot}from'react-dom/client';import App from './App';import {LanguageProvider} from './i18n';import './style.css';import './ambient.css';
+import './design-tokens.css';
+import './style.css';
+import './ui.css';
+import './ambient.css';
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/space-grotesk/500.css';
+import '@fontsource/space-grotesk/700.css';
+import React from 'react';
+import {createRoot} from 'react-dom/client';
 import {TonConnectUIProvider} from '@tonconnect/ui-react';
-import '@fontsource/inter/400.css';import '@fontsource/inter/500.css';import '@fontsource/inter/600.css';import '@fontsource/space-grotesk/500.css';import '@fontsource/space-grotesk/700.css';
+import {LanguageProvider} from './i18n';
+import App from './App';
 createRoot(document.getElementById('root')!).render(<React.StrictMode><LanguageProvider><TonConnectUIProvider manifestUrl={location.origin+'/tonconnect-manifest.json'}><App/></TonConnectUIProvider></LanguageProvider></React.StrictMode>);

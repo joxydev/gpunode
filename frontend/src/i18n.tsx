@@ -2,6 +2,7 @@ import {createContext,useContext,useEffect,useState,type ReactNode} from 'react'
 import {translations} from './translations';
 import {productionTranslations} from './production-translations';
 import {homepageTranslations} from './homepage-translations';
+import {redesignTranslations} from './redesign-translations';
 
 export type Language='ru'|'en'|'ro';
 export const languages:{code:Language;name:string;native:string}[]=[
@@ -25,7 +26,7 @@ export function LanguageProvider({children}:{children:ReactNode}){
  const choose=(next:Language)=>{setLanguage(next);setChosen(true);try{localStorage.setItem(storageKey,next)}catch{/* private mode */}};
  useEffect(()=>{document.documentElement.lang=language;document.title='AetherMind · '+({ru:'Вычислительная сеть',en:'Compute Network',ro:'Rețea de calcul'}[language]);document.querySelector('meta[name="description"]')?.setAttribute('content',({ru:'AetherMind — участие в вычислительной сети GPU.',en:'AetherMind — take part in a GPU compute network.',ro:'AetherMind — participă la o rețea de calcul GPU.'})[language])},[language]);
  const t=(source:string,values?:Record<string,string|number>)=>{
-   const translation=language==='ru'?source:(translations[source]||productionTranslations[source]||homepageTranslations[source])?.[language==='en'?0:1]||source;
+   const translation=language==='ru'?source:(redesignTranslations[source]||translations[source]||productionTranslations[source]||homepageTranslations[source])?.[language==='en'?0:1]||source;
    return values?translation.replace(/\{([a-zA-Z]+)\}/g,(_,key:string)=>String(values[key]??'{'+key+'}')):translation;
  };
  return <Context.Provider value={{language,chosen,choose,t}}>{children}</Context.Provider>;

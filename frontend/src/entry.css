@@ -1,5 +1,3 @@
-.app-shell{min-height:var(--tg-viewport-stable-height,100dvh)}
-.browser-login-code{padding:18px;margin:20px 0;border:1px solid #00f0ff55;border-radius:12px;text-align:center;letter-spacing:7px;font:28px 'Space Grotesk',monospace;color:#00f0ff;background:#00f0ff09}
-.modal a.primary{text-decoration:none}
-.welcome-account{margin:18px 0 0;font-size:12px;color:#95a9c2}
-.welcome-links{display:flex;justify-content:center;gap:16px;flex-wrap:wrap}
+.app-shell{min-height:var(--app-viewport-height,100dvh)}
+.browser-login-code{padding:20px;margin:20px 0;border:1px solid var(--color-primary);border-radius:16px;text-align:center;letter-spacing:6px;font:600 1.75rem var(--font-heading);color:var(--color-primary);background:var(--color-surface-raised)}
+.modal a.primary{text-decoration:none}.welcome-account{margin:16px 0 0;font-size:.9375rem;color:var(--color-text-muted)}
