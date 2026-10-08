@@ -1,5 +1,7 @@
 name: Checks
-on: [push, pull_request]
+# Release builds and required checks run on the VPS before switching current.
+# GitHub stores the source; pushes and pull requests do not start a build.
+on: [workflow_dispatch]
 permissions:
   contents: read
 jobs:
