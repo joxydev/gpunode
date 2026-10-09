@@ -30,7 +30,8 @@ function useTime(visible:boolean){const subscribe=useCallback(visible?serverCloc
 const states:Record<string,string>={SYNCING:'Ожидаем суточный расчёт',PAUSED:'Начисления на паузе',PROVISIONING:'Ожидает активации',COMPLETED:'Срок завершён',EARLY_UNBONDED:'Завершено досрочно',CANCELLED:'Заказ отменён',UNAVAILABLE:'Условия уточняются оператором'};
 
 const LiveStats=memo(function LiveStats({node,compact=false,onRefresh}:{node:Lease;compact?:boolean;onRefresh:()=>Promise<void>}){
- const {t}=useLanguage(),ref=useRef<HTMLDivElement>(null),visible=useVisible(ref),time=useTime(visible),snapshot=node.liveAccrual;
+ const {t}=useLanguage(),ref=useRef<HTMLDivElement>(null),visible=useVisible(ref),snapshot=node.liveAccrual;
+ const time=useTime(visible&&Boolean(snapshot?.state==='ACTIVE'&&snapshot.validSnapshot));
  const requested=useRef(''),refresh=useRef(onRefresh);refresh.current=onRefresh;
  const now=time.now||Date.parse(snapshot?.serverNow||''),amount=snapshot?liveAmounts(snapshot,now):null;
  const boundary=Boolean(amount?.boundary),waiting=snapshot?.state==='ACTIVE'&&(!time.ready||boundary);
@@ -50,12 +51,14 @@ const LiveStats=memo(function LiveStats({node,compact=false,onRefresh}:{node:Lea
 
 const tasks:Record<string,string[]>={alpha:['Нейрорендеринг','Обработка изображений','Инференс компьютерного зрения'],beta:['Инференс языковой модели','Подготовка батча','Настройка модели'],enterprise:['Обработка большого батча','Вычисления модели','Научное моделирование']};
 function Workload({node}:{node:Lease}){
- const {t}=useLanguage(),ref=useRef<HTMLElement>(null),visible=useVisible(ref),active=useAppActive(),time=useTime(visible&&active);
- const running=node.status==='ACTIVE'&&node.liveAccrual?.state==='ACTIVE'&&time.ready;
- const segment=Math.floor(time.now/6000),frame=workloadFrame(node.id,node.nodeId,segment*6000);
+ const {t}=useLanguage(),ref=useRef<HTMLElement>(null),visible=useVisible(ref),active=useAppActive();
+ const canRun=Boolean(node.status==='ACTIVE'&&node.liveAccrual?.state==='ACTIVE'&&node.liveAccrual.validSnapshot),time=useTime(visible&&active&&canRun);
+ const running=canRun&&time.ready,frameRef=useRef(workloadFrame(node.id,node.nodeId,time.now));
+ if(visible&&active&&running)frameRef.current=workloadFrame(node.id,node.nodeId,Math.floor(time.now/6000)*6000);
+ const frame=frameRef.current;
  const task=(tasks[frame.category]||tasks.enterprise)[frame.task];
  const staticLabel=node.liveAccrual?.state==='UNAVAILABLE'||node.status==='OVERCLOCKED'?'Условия уточняются оператором':node.status==='PROVISIONING'?'Подготовка оборудования':node.status==='CANCELLED'?'Заказ отменён':node.status==='ACTIVE'?'Визуализация приостановлена':'Работа завершена';
- return <section ref={ref} className="gpu-workload" aria-label={t('Визуализация работы')}>
+ return <section ref={ref} className="gpu-workload" data-paused={!visible||!active||!running} aria-label={t('Визуализация работы')}>
   <header><h3>{t('Визуализация работы')}</h3><small>{t('Иллюстративная нагрузка')}</small></header>
   {running?<><p className="gpu-task" key={task}>{t(task)}</p><div className="gpu-load-title"><span>{t(['Подготовка','Обработка','Завершение задачи'][frame.stage])}</span><b>{frame.load}%</b></div><div className="gpu-load-track"><i style={{transform:`scaleX(${frame.load/100})`}}/></div><div className="gpu-load-title"><span>{t('Обработка пакета')}</span><b>{frame.progress}%</b></div><div className="gpu-load-track gpu-load-secondary"><i style={{transform:`scaleX(${frame.progress/100})`}}/></div></>:<p>{t(staticLabel)}</p>}
  </section>;
