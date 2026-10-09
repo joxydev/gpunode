@@ -108,7 +108,7 @@ For Alpha, the first daily yield is 0.900000 USDT, first closing capital is
 50.900000, and second daily yield is 0.916200.
 
 Browser matrix: RU/EN/RO on 320/360/390/430/768/1024/1440; six static lease states;
-200% text and reduced motion (28 combinations). Regression checks cover device
+200% text and reduced motion (34 combinations, including owner and ordinary roles). Regression checks cover device
 clock changes, Telegram activated/deactivated, direct back/focus, retained
 Compound mode/key after a network failure and reload, definitive refusal,
 landscape, repeated modal exits and retained TON wallet/invoice after refusal.
