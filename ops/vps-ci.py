@@ -111,6 +111,8 @@ try:
     run(['node', '--check', 'ops/public-runtime-check.mjs'])
     run(['node', '--check', 'ops/public-runtime-integration.mjs'])
     run(['node', 'ops/public-runtime-integration.mjs'])
+    run(['node', '--check', 'ops/gpu-live-integration.mjs'])
+    run(['node', 'ops/gpu-live-integration.mjs'])
     print('VPS CI PASSED: migrations + Nest/Prisma HTTP suite on isolated PostgreSQL.', flush=True)
 finally:
     if started or (data / 'postmaster.pid').exists():

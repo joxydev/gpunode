@@ -30,13 +30,13 @@ try{
  }
  assert.ok(healthy,'Public API starts with the release environment');
  const offer=await get('/offer');
- assert.equal(offer.paymentsEnabled,true);assert.equal(offer.accrualEnabled,true);
+ assert.equal(offer.paymentsEnabled,true);assert.equal(offer.accrualEnabled,true);assert.equal(offer.compoundEnabled,true);
  assert.equal(offer.financialOffer.sha256,offer.documentSha256);
  const market=await get('/v1/market');
  assert.equal(market.purchasesEnabled,true);assert.ok(market.nodes.some(node=>node.canBuy&&node.availability==='AVAILABLE'));
  // Existing ordinary CI participant has accepted the agreement in integration.mjs.
  const token=signSession('22222',env.SESSION_SECRET),me=await get('/me',token);
- assert.equal(me.purchasesEnabled,true);assert.equal(me.accrualEnabled,true);assert.equal(me.paymentsEnabled,true);
+ assert.equal(me.purchasesEnabled,true);assert.equal(me.accrualEnabled,true);assert.equal(me.paymentsEnabled,true);assert.equal(me.compoundEnabled,true);
  console.log('PUBLIC RUNTIME CI PASSED: stale flags rejected; public API offer, catalogue and ordinary profile enabled.');
 }finally{
  if(child.exitCode===null&&child.signalCode===null)child.kill('SIGTERM');

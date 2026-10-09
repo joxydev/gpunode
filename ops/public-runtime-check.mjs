@@ -15,8 +15,8 @@ if(mismatches.length){
 }else{
  const offer=financialOffer();
  if(offer?.version!==OFFER_VERSION||offer?.sha256!==OFFER_DOCUMENT_SHA256||
-    !['PURCHASES','EPOCH_ACTIVATION','ACCRUAL'].every(name=>financialFlag(name))){
+    !['PURCHASES','EPOCH_ACTIVATION','ACCRUAL','COMPOUND'].every(name=>financialFlag(name))){
   console.error('Public runtime offer/PDF or financial flags are not ready');
   process.exitCode=1;
- }else console.log('Public runtime preflight: deposits, orders, activation and accrual enabled');
+ }else console.log('Public runtime preflight: deposits, orders, activation, accrual and Compound enabled');
 }

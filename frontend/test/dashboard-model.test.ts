@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type {Account} from '../src/api';
 import {displayBalance,recentActivity} from '../src/dashboard-model';
-import {epochDays} from '../src/Assets';
+import {epochDays} from '../src/gpu-terms';
 
 test('dashboard balance remains exact and activity uses persisted events without double-counting credited invoices',()=>{
  assert.equal(displayBalance('123456789012345678.500000','en-US'),'123,456,789,012,345,678.50');

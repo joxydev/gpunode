@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {api} from './api';
 import {useLanguage,intlLocale} from './i18n';
+import {useSurfaceMotion} from './motion';
 import {exactMoney,normalizeCreditAmount} from './exact-money';
 
 type Credit={id:string;userId:string;actorId:string;amount:string;reason:string;balanceAfter:string;createdAt:string};
@@ -11,6 +12,7 @@ export default function OwnerCredit({ownerId,user,balance,onBusy,onCredited}:Pro
  const restored=useRef<Draft|null>(null),initialized=useRef(false);
  if(!initialized.current){initialized.current=true;try{const draft=JSON.parse(sessionStorage.getItem(storageKey)||'null');if(draft&&normalizeCreditAmount(draft.amount)&&typeof draft.reason==='string'&&typeof draft.idempotencyKey==='string')restored.current=draft}catch{}}
  const [open,setOpen]=useState(Boolean(restored.current)),[amount,setAmount]=useState(restored.current?.amount||''),[reason,setReason]=useState(restored.current?.reason||''),[review,setReview]=useState(Boolean(restored.current)),[busy,setBusy]=useState(false),[error,setError]=useState(''),[receipt,setReceipt]=useState<Credit|null>(null),[history,setHistory]=useState<Credit[]>([]);
+ const surface=useRef<HTMLElement>(null);useSurfaceMotion(surface,open+':'+review+':'+Boolean(receipt));
  const request=useRef<Draft|null>(restored.current),sending=useRef(false);
  const normalized=normalizeCreditAmount(amount),normalizedReason=reason.trim().replace(/\s+/g,' '),valid=Boolean(normalized)&&normalizedReason.length>=3&&normalizedReason.length<=500&&!/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(reason);
  async function loadHistory(){const result=await api<{items:Credit[]}>('/admin/users/'+user.id+'/balance/credits');setHistory(result.items)}
@@ -27,7 +29,7 @@ export default function OwnerCredit({ownerId,user,balance,onBusy,onCredited}:Pro
   }catch(e){setError((e as Error).message);if([400,404,409].includes((e as Error&{status?:number}).status||0)){request.current=null;try{sessionStorage.removeItem(storageKey)}catch{}setReview(false)}}finally{sending.current=false;setBusy(false);onBusy(false)}
  }
  const reset=()=>{request.current=null;setReceipt(null);setAmount('');setReason('');setReview(false);setError('');setOpen(true)};
- return <section className="owner-credit panel" aria-labelledby="owner-credit-title" aria-busy={busy}>
+ return <section ref={surface} className="owner-credit panel" aria-labelledby="owner-credit-title" aria-busy={busy}>
   <h3 id="owner-credit-title">{t('Пополнить баланс')}</h3><p>{t('Зачисление на доступный баланс. Это служебная операция, отдельная от перевода TON.')}</p>
   {!open?<button className="secondary" onClick={()=>setOpen(true)}>{t('Пополнить баланс')}</button>:<>
    <dl className="owner-credit-recipient"><div><dt>{t('Получатель')}</dt><dd>{user.name}{user.username?' · @'+user.username:''} · ID {user.id}</dd></div><div><dt>{t('Доступный баланс')}</dt><dd>{exactMoney(balance,locale)} USDT</dd></div></dl>

@@ -20,7 +20,8 @@ class PublicRuntimeTest(unittest.TestCase):
         self.assertEqual(updated.count('\nENABLE_ACCRUAL=true\n'), 1)
         self.assertNotIn('export ENABLE_ACCRUAL', updated)
         self.assertIn('SESSION_SECRET=keep-this-private\n', updated)
-        self.assertIn('ENABLE_COMPOUND=false\n', updated)
+        self.assertIn('ENABLE_COMPOUND=true\n', updated)
+        self.assertNotIn('ENABLE_COMPOUND=false\n', updated)
         self.assertEqual(runtime.rewrite_runtime(updated), updated)
 
     def test_last_files_override_inherited_pause_files(self):

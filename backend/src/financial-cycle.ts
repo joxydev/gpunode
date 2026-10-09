@@ -6,6 +6,7 @@ import {catalogueTermsMatch,fixed,scaled} from './market.js';
 import {offerTariffs} from './offer.js';
 import {microsToDecimal} from './security.js';
 import {notify,type Tx} from './production.js';
+import {projectAccrual} from './live-accrual.js';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function leaseId(value:string){if(!uuid.test(value))throw new BadRequestException('Некорректный идентификатор.');return value;}
@@ -25,7 +26,7 @@ function requireSnapshot(row:UserLease){
   failure('LEGACY_TERMS_REVIEW','conflict');
  return {principal:row.principalMicros!,rate:row.mode==='COMPOUND'?row.compoundDailyRateBps!:row.baseDailyRateBps!,days:row.contractDays!};
 }
-export function presentLease(row:UserLease&{node?:{name:string}}){
+export function presentLease(row:UserLease&{node?:{name:string}},now=new Date(),enabled=financialFlag('ACCRUAL')){
  const modern=Boolean(row.offerVersion);
  return {id:row.id,userId:row.userId,nodeId:row.nodeId,node:row.node,status:row.status,createdAt:row.createdAt,
   expiresAt:row.epochEndsAt||row.expiresAt,activatedAt:row.activatedAt,epochEndsAt:row.epochEndsAt,completedAt:row.completedAt,
@@ -36,7 +37,7 @@ export function presentLease(row:UserLease&{node?:{name:string}}){
   compoundProfit:modern?microsToDecimal(row.compoundProfitMicros):null,
   currentCompoundBlock:row.currentCompoundBlock,compoundBlockEndsAt:row.compoundBlockEndsAt,
   unbondFee:row.unbondFeeMicros===null?null:microsToDecimal(row.unbondFeeMicros),
-  legacyTermsReview:!modern};
+  legacyTermsReview:!modern,liveAccrual:projectAccrual(row,now,enabled)};
 }
 async function lockUser(tx:Tx,userId:string){
  const rows=await tx.$queryRaw<{id:string}[]>`SELECT id FROM "User" WHERE id=${userId} FOR UPDATE`;
