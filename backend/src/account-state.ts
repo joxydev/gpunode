@@ -18,7 +18,7 @@ export function nextAccountAction(input:{
  if(input.leases.some(lease=>lease.status==='ACTIVE'&&(lease.epochEndsAt||lease.expiresAt||now)>now))return {kind:'EPOCH_ACTIVE' as AccountAction};
  if(input.leases.some(lease=>lease.status==='PROVISIONING'))return {kind:'PROVISIONING' as AccountAction};
  if(input.requests.some(request=>['REQUESTED','REVIEWED'].includes(request.status)))return {kind:'REQUEST_PENDING' as AccountAction};
- if(input.leases.some(lease=>lease.status==='COMPLETED'||lease.status==='EARLY_UNBONDED'))return {kind:'EPOCH_COMPLETED' as AccountAction};
+ 
  if(input.leases.some(lease=>lease.status==='EXPIRED'||['ACTIVE','OVERCLOCKED'].includes(lease.status)&&lease.expiresAt&&lease.expiresAt<=now))return {kind:'WITHDRAW_MANUAL' as AccountAction};
  if(!input.selected)return {kind:'SELECT_TARIFF' as AccountAction};
  if(!input.purchasesEnabled)return {kind:'ORDER_UNAVAILABLE' as AccountAction,tariff:input.selected.name};

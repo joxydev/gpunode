@@ -59,7 +59,7 @@ function Workload({node}:{node:Lease}){
  const task=(tasks[frame.category]||tasks.enterprise)[frame.task];
  const staticLabel=node.liveAccrual?.state==='UNAVAILABLE'||node.status==='OVERCLOCKED'?'Условия уточняются оператором':node.status==='PROVISIONING'?'Подготовка оборудования':node.status==='CANCELLED'?'Заказ отменён':node.status==='ACTIVE'?'Визуализация приостановлена':'Работа завершена';
  return <section ref={ref} className="gpu-workload" data-paused={!visible||!active||!running} aria-label={t('Визуализация работы')}>
-  <header><h3>{t('Визуализация работы')}</h3><small>{t('Иллюстративная нагрузка')}</small></header>
+  <header><h3>{t('Визуализация работы')}</h3></header>
   {running?<><p className="gpu-task" key={task}>{t(task)}</p><div className="gpu-load-title"><span>{t(['Подготовка','Обработка','Завершение задачи'][frame.stage])}</span><b>{frame.load}%</b></div><div className="gpu-load-track"><i style={{transform:`scaleX(${frame.load/100})`}}/></div><div className="gpu-load-title"><span>{t('Обработка пакета')}</span><b>{frame.progress}%</b></div><div className="gpu-load-track gpu-load-secondary"><i style={{transform:`scaleX(${frame.progress/100})`}}/></div></>:<p>{t(staticLabel)}</p>}
  </section>;
 }

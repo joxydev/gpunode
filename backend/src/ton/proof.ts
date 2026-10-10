@@ -3,7 +3,7 @@ import {Address,Cell,contractAddress,loadStateInit,WalletContractV5R1,WalletCont
 import type {TonCenter} from './center.js';
 import type {Config} from './center.js';
 
-export type Proof={timestamp:number;domain:{lengthBytes:number;value:string};payload:string;signature:string};
+export type Proof={timestamp:number|string;domain:{lengthBytes:number;value:string};payload:string;signature:string};
 export type ProofInput={address:string;network:string;walletStateInit:string;proof:Proof;walletApp?:string};
 const sha=(data:Buffer)=>createHash('sha256').update(data).digest();
 const spki=Buffer.from('302a300506032b6570032100','hex');
@@ -14,11 +14,13 @@ const contracts=[
  {version:'V3R2',code:WalletContractV3R2.create({workchain:0,publicKey:empty}).init.code,extract:(cell:Cell)=>{const s=cell.beginParse();s.loadUint(32);s.loadUint(32);return s.loadBuffer(32)}}
 ];
 export async function verifyTonProof(input:ProofInput,expectedPayload:string,config:Config,center:Pick<TonCenter,'publicKey'>,now=Date.now()):Promise<{address:string;publicKey:string;walletVersion:string;walletId:string|null}>{
+ const tsValue=input?.proof?.timestamp;
+ const timestamp=typeof tsValue==='string'&&/^(0|[1-9][0-9]{0,18})$/.test(tsValue)?BigInt(tsValue):typeof tsValue==='number'&&Number.isSafeInteger(tsValue)&&tsValue>=0?BigInt(tsValue):null;
  if(!input||typeof input!=='object'||input.network!=='-239'||typeof input.address!=='string'||
   typeof input.walletStateInit!=='string'||input.walletStateInit.length>12000||
   !input.proof||typeof input.proof.payload!=='string'||input.proof.payload!==expectedPayload||
-  input.proof.domain?.value!==config.domain||!Number.isInteger(input.proof.timestamp)||
-  Math.abs(Math.floor(now/1000)-input.proof.timestamp)>900||
+  input.proof.domain?.value!==config.domain||timestamp===null||timestamp>18446744073709551615n||
+  (timestamp-BigInt(Math.floor(now/1000))>900n||BigInt(Math.floor(now/1000))-timestamp>900n)||
   typeof input.proof.signature!=='string'||! /^[A-Za-z0-9+/]{86}==$/.test(input.proof.signature))throw Error('Invalid TON Proof');
  const address=Address.parse(input.address);
  if(address.workChain!==0)throw Error('Unsupported workchain');
@@ -32,7 +34,7 @@ export async function verifyTonProof(input:ProofInput,expectedPayload:string,con
  if(!key||key.length!==32)throw Error('Wallet public key unavailable');
  const wc=Buffer.alloc(4);wc.writeInt32BE(address.workChain);
  const domainLen=Buffer.alloc(4);domainLen.writeUInt32LE(domain.length);
- const ts=Buffer.alloc(8);ts.writeBigUInt64LE(BigInt(input.proof.timestamp));
+ const ts=Buffer.alloc(8);ts.writeBigUInt64LE(timestamp!);
  const msg=Buffer.concat([Buffer.from('ton-proof-item-v2/'),wc,address.hash,domainLen,domain,ts,Buffer.from(expectedPayload,'utf8')]);
  const digest=sha(Buffer.concat([Buffer.from([255,255]),Buffer.from('ton-connect'),sha(msg)]));
  const verified=edVerify(null,digest,createPublicKey({key:Buffer.concat([spki,key]),format:'der',type:'spki'}),Buffer.from(input.proof.signature,'base64'));

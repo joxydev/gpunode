@@ -77,9 +77,9 @@ export async function purchase(db:PrismaClient,userId:string,input:Record<string
   if(!catalogueTermsMatch({id:catalog.id,name:catalog.name,category:catalog.category,tier_level:catalog.tierLevel,chip:catalog.chip,precision_label:catalog.precisionLabel,workload:catalog.workload,price_usdt:catalog.priceUsdt.toString(),daily_yield_percent:catalog.dailyYieldPercent.toString(),compound_boost_percent:catalog.compoundBoostPercent?.toString()??null,tflops_power:catalog.tflopsPower,total_supply:catalog.totalSupply,available_supply:catalog.availableSupply,supply_known:catalog.supplyKnown,contract_days:catalog.contractDays,max_per_user:catalog.maxPerUser,image_url:catalog.imageUrl,is_active:catalog.isActive,is_experimental:catalog.isExperimental,contract_reference:catalog.contractReference})||
    principal!==BigInt(tariff!.depositUsdt)*1000000n||baseRate!==Number(scaled(tariff!.dailyPercent!,2))||compoundRate!==Number(scaled(tariff!.compoundPercent!,2)))failure('CATALOG_TERMS_MISMATCH','unavailable');
   if(catalog.availableSupply<1)failure('SOLD_OUT','conflict');
-  if(await tx.userLease.count({where:{userId,status:{in:['PROVISIONING','ACTIVE','OVERCLOCKED']}}}))failure('ACTIVE_LEASE_EXISTS','conflict');
-  if(await tx.rentalRequest.count({where:{userId,isTestOrder:false,leaseId:null,status:{in:['REQUESTED','REVIEWED']}}}))failure('ORDER_ALREADY_EXISTS','conflict');
-  if(await tx.userLease.count({where:{userId,nodeId,status:{in:['PROVISIONING','ACTIVE','OVERCLOCKED']}}})>=catalog.maxPerUser)failure('USER_LIMIT','conflict');
+  if(await tx.userLease.count({where:{userId,nodeId,status:{in:['PROVISIONING','ACTIVE','OVERCLOCKED','EXPIRED']}}}))failure('ACTIVE_LEASE_EXISTS','conflict');
+  if(await tx.rentalRequest.count({where:{userId,nodeId,isTestOrder:false,leaseId:null,status:{in:['REQUESTED','REVIEWED']}}}))failure('ORDER_ALREADY_EXISTS','conflict');
+  if(await tx.userLease.count({where:{userId,nodeId,status:{in:['PROVISIONING','ACTIVE','OVERCLOCKED','EXPIRED']}}})>=catalog.maxPerUser)failure('USER_LIMIT','conflict');
   const balance=(await tx.ledgerEntry.aggregate({where:{userId},_sum:{amountMicros:true}}))._sum.amountMicros||0n;
   if(balance<principal)failure('INSUFFICIENT_BALANCE','conflict');
   const slot=await tx.gpuCatalog.updateMany({where:{id:nodeId,availableSupply:{gt:0}},data:{availableSupply:{decrement:1}}});

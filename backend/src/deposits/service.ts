@@ -45,8 +45,7 @@ export class DepositsService {
   return this.db.$transaction(async tx=>{
    const used=await tx.tonProofChallenge.updateMany({where:{id:challenge.id,consumedAt:null,expiresAt:{gt:new Date()}},data:{consumedAt:new Date()}});
    if(!used.count)throw new BadRequestException('Подпись уже использована.');
-   const owner=await tx.tonWallet.findUnique({where:{address:proof.address}});
-   if(owner&&owner.userId!==userId)throw new ForbiddenException('Кошелёк привязан к другому аккаунту.');
+   const owner=await tx.tonWallet.findUnique({where:{userId}});
    const wallet=await tx.tonWallet.upsert({where:{userId},create:{userId,address:proof.address,network:'TON',walletApp:String(input.walletApp||'').slice(0,100)||null,publicKey:proof.publicKey,walletVersion:proof.walletVersion,walletId:proof.walletId,verified:true},update:{address:proof.address,network:'TON',walletApp:String(input.walletApp||'').slice(0,100)||null,publicKey:proof.publicKey,walletVersion:proof.walletVersion,walletId:proof.walletId,verified:true,lastConnectedAt:new Date()}});
    if(!owner||owner.address!==proof.address)await tx.audit.create({data:{actorId:userId,action:'WALLET_CONNECTED',targetId:proof.address}});
    return {address:friendly(wallet.address),network:'TON',verified:true,walletVersion:wallet.walletVersion};

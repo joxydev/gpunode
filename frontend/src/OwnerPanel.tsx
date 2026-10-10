@@ -11,7 +11,8 @@ import {useAppBack} from './navigation';
 const OwnerWithdrawals=lazy(()=>import('./OwnerWithdrawals'));
 const OwnerOperations=lazy(()=>import('./OwnerOperations'));
 const OwnerLeases=lazy(()=>import('./OwnerLeases'));
-const supportCategories:Record<string,string>={QUESTION:'Вопрос',COMPLAINT:'Жалоба',PAYMENT:'Платёж',WITHDRAWAL:'Вывод',ACCOUNT:'Аккаунт',WALLET:'Кошелёк',NODE:'Нода',TECHNICAL:'Техническая проблема',OTHER:'Другое'};
+const OwnerNetwork=lazy(()=>import('./OwnerNetwork'));
+const supportCategories:Record<string,string>={QUESTION:'Вопрос',COMPLAINT:'Жалоба',PAYMENT:'Платёж',WITHDRAWAL:'Вывод',ACCOUNT:'Аккаунт',WALLET:'Кошелёк',NODE:'GPU',TECHNICAL:'Техническая проблема',OTHER:'Другое'};
 
 type Summary={users:number;openRequests:number;pendingPayments:number;openTickets:number;unreadTickets:number;confirmedDeposits:string};
 type Audit={id:string;action:string;actorId:string;targetId:string;createdAt:string;credit?:{userId:string;amount:string;reason:string}};
@@ -91,8 +92,9 @@ export default function OwnerPanel({onRefresh,ownerId,onBack}:{onRefresh:()=>Pro
    <button onClick={()=>select('tickets')}><span>{t("Тикеты")}</span><b>{summary?.openTickets??'—'}</b><small>{summary?.unreadTickets??'—'} {t("непрочитано")}</small></button>
    <button onClick={()=>select('deposits')}><span>{t("Депозиты")}</span><b>{summary?money(summary.confirmedDeposits,locale):'—'}</b><small>{t("Открыть платежи TON")}</small></button>
   </div>
-  <div className="owner-tabs" role="group" aria-label={t("Разделы владельца")}>{[['overview','Обзор'],['users','Пользователи'],['requests','Заявки'],['leases','Заказы и ноды'],['deposits','Депозиты'],['withdrawals','Выводы'],['tickets','Тикеты'],['operations','Операции']].map(([id,label])=><button key={id} disabled={busy} aria-pressed={section===id} onClick={()=>select(id)}><Icon name={id==='overview'?'home':id==='users'?'users':id==='requests'?'receipt':id==='leases'?'cluster':id==='deposits'?'download':id==='withdrawals'?'send':id==='tickets'?'help':'network'} size={24}/><span>{t(label)}</span>{id==='tickets'&&Boolean(summary?.unreadTickets)&&<i>{summary!.unreadTickets}</i>}</button>)}</div>
+  <div className="owner-tabs" role="group" aria-label={t("Разделы владельца")}>{[['overview','Обзор'],['users','Пользователи'],['requests','Заявки'],['leases','Заказы и ноды'],['deposits','Депозиты'],['withdrawals','Выводы'],['tickets','Тикеты'],['operations','Операции'],['network','AI Ambassador Network']].map(([id,label])=><button key={id} disabled={busy} aria-pressed={section===id} onClick={()=>select(id)}><Icon name={id==='overview'?'home':id==='users'?'users':id==='requests'?'receipt':id==='leases'?'cluster':id==='deposits'?'download':id==='withdrawals'?'send':id==='tickets'?'help':'network'} size={24}/><span>{t(label)}</span>{id==='tickets'&&Boolean(summary?.unreadTickets)&&<i>{summary!.unreadTickets}</i>}</button>)}</div>
   {section==='withdrawals'&&<Suspense fallback={<p role="status">{t('Загрузка…')}</p>}><OwnerWithdrawals onRefresh={onRefresh}/></Suspense>}
+  {section==='network'&&<Suspense fallback={<p role="status">{t('Загрузка…')}</p>}><OwnerNetwork/></Suspense>}
   {section==='operations'&&<Suspense fallback={<p role="status">{t('Загрузка…')}</p>}><OwnerOperations/></Suspense>}
   {section==='leases'&&<Suspense fallback={<p role="status">{t('Загрузка…')}</p>}><OwnerLeases onRefresh={onRefresh}/></Suspense>}
 

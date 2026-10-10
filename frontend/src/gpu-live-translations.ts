@@ -28,7 +28,6 @@ export const gpuLiveTranslations:Record<string,[string,string]>={
  'Ожидаем обновление периода':['Awaiting period update','Așteptăm actualizarea perioadei'],
  'Данные устарели. Обновляем расчёт.':['Data is stale. Refreshing the estimate.','Datele sunt vechi. Actualizăm estimarea.'],
  'Визуализация работы':['Work visualisation','Vizualizarea activității'],
- 'Иллюстративная нагрузка':['Illustrative load','Sarcină ilustrativă'],
  'Нейрорендеринг':['Neural rendering','Randare neurală'],
  'Обработка изображений':['Image processing','Procesare de imagini'],
  'Инференс компьютерного зрения':['Computer vision inference','Inferență de vedere artificială'],

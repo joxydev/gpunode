@@ -1,4 +1,5 @@
 import {useLanguage} from './i18n';
+import {ToastProvider,useToast} from './Toasts';
 import LanguagePicker from './LanguagePicker';
 import {lazy,Suspense,useCallback,useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {useAmbientMotion,useAppActive,useReducedMotion,useSurfaceMotion,exitSurface} from './motion';
@@ -29,7 +30,9 @@ const Withdrawals=lazy(()=>import('./Withdrawals'));
 
 function Splash(){const {t}=useLanguage(),active=useAppActive(),reduced=useReducedMotion();const el=useRef<HTMLDivElement>(null);useEffect(()=>{if(!el.current||!active||reduced)return;let cancelled=false,animation:{destroy:()=>void}|null=null;void import('lottie-web/build/player/lottie_light').then(({default:lottie})=>{if(!cancelled&&el.current)animation=lottie.loadAnimation({container:el.current,renderer:'svg',loop:true,autoplay:true,path:'/assets/splash.json'})}).catch(()=>{/* keep the still splash artwork */});return()=>{cancelled=true;animation?.destroy()}},[active,reduced]);return <div className="splash"><div ref={el} className="splash-ring"/><img src="/assets/core.webp" alt={t("Нейронное ядро")} draggable={false}/><p>{t("Соединяем с AetherMind…")}</p></div>}
 
-export default function App(){
+export default function App(){return <ToastProvider><AppContent/></ToastProvider>}
+function AppContent(){
+ const pushToast=useToast();
  useAmbientMotion();
  useViewport();
  const appActive=useAppActive();useEffect(()=>serverClock.setActive(appActive),[appActive]);
@@ -106,12 +109,14 @@ export default function App(){
  function logout(){sessionGeneration.current++;serverClock.reset();setToken('');setAccount(null);setEntered(false);setTab('dashboard');setModal('');setTourOpen(false);setNotice('')}
  async function acceptAgreement(){setAccepting(true);setError('');try{await api('/agreement/accept',{version:AGREEMENT_VERSION});await refresh()}catch(e){setError((e as Error).message)}finally{setAccepting(false)}}
  async function acceptOffer(){setAccepting(true);setError('');try{await api('/offer/accept',{version:OFFER_VERSION,documentSha256:OFFER_DOCUMENT_SHA256,readConfirmed:true});await refresh();setNotice(t('Акцепт оферты зафиксирован в профиле.'))}catch(e){setError((e as Error).message)}finally{setAccepting(false)}}
- const alerts=<>{error&&<div className="alert error" role="alert">{error}<button aria-label={t("Закрыть")} onClick={()=>setError('')}><Icon name="close" size={18}/></button></div>}{notice&&<div className="alert" role="status">{notice}<button aria-label={t("Закрыть")} onClick={()=>setNotice('')}><Icon name="close" size={18}/></button></div>}</>;
+ const alerts=null;
+ useEffect(()=>{if(error)pushToast(error,'error');},[error]);
+ useEffect(()=>{if(notice)pushToast(notice,'notice');},[notice]);
  if(location.pathname==='/privacy')return <div className="app-shell"><Privacy/><a className="secondary" href="/">{t('Мои инвестиции')}</a></div>;
  if(!chosen)return <LanguagePicker/>;
  if(loading)return <Splash/>;
  if(entered&&account&&!account.agreement.accepted)return <AgreementGate busy={accepting} error={error} onAccept={acceptAgreement}/>;
- if(entered&&account&&!account.offer.accepted)return <OfferGate busy={accepting} error={error} onAccept={acceptOffer}/>;
+ if(entered&&account&&!account.offer.accepted&&!account.offer.hasPriorAcceptance)return <OfferGate busy={accepting} error={error} onAccept={acceptOffer}/>;
  return <BackContext.Provider value={registerBack}><div className={'app-shell '+(entered?'app-entered':'')+(inTelegram?' telegram-shell':'')} onContextMenu={e=>{if((e.target as HTMLElement).closest('img,.core-visual'))e.preventDefault()}} onDragStart={e=>{if((e.target as HTMLElement).closest('img'))e.preventDefault()}}>
   <TonProofSync account={account} onRefresh={refresh} onError={setError}/>
   <div className="app-surface" ref={surfaceRef}>
