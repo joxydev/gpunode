@@ -35,7 +35,8 @@ export function botCommand(text:string):BotCommand|null{
 export function botReply(command:BotCommand,language:BotLanguage,chatId:number,publicUrl:string,firstName?:string){
  const key=command==='/paysupport'?'support':command.slice(1) as 'start'|'help'|'terms'|'support';
  const name=firstName?escapeHtml(Array.from(firstName.trim()).slice(0,60).join('')):'';
- const text=messages[language][key].replace('{name}',name?`<b>${name}</b>, `:'');
+ const greeting={ru:'рады видеть вас здесь!',en:'glad to have you here!',ro:'ne bucurăm să te vedem aici!'};
+ const text=messages[language][key].replace('{name}',name?`<b>${name}</b>, ${greeting[language]}\n\n`:'');
  const common={chat_id:chatId,parse_mode:'HTML',reply_markup:{inline_keyboard:[[{text:botWords[language].open,web_app:{url:publicUrl.replace(/\/$/,'')+'/'}}]]}};
  return command==='/start'?{method:'sendPhoto',body:{...common,photo:WELCOME_PHOTO,caption:text}}:{method:'sendMessage',body:{...common,text,link_preview_options:{is_disabled:true}}};
 }
