@@ -1,5 +1,6 @@
 /* Only the matching breakpoint fetches a resource. Finite image fades into the page. */
-body{background-color:var(--color-bg);background-repeat:no-repeat;background-position:center top;background-attachment:scroll;background-size:100% 1000px;background-image:linear-gradient(to bottom,#090d180a 0,#090d1833 430px,var(--color-bg) 960px),url('/assets/ambient-mobile.webp')}
+body{background-color:var(--color-bg);background-repeat:no-repeat;background-position:center top;background-attachment:scroll;background-size:100% 1000px}
+@media(max-width:1023px){body{background-image:linear-gradient(to bottom,#090d180a 0,#090d1833 430px,var(--color-bg) 960px),url('/assets/ambient-mobile.webp')}}
 @media(min-width:1024px){body{background-size:100% 1150px;background-image:linear-gradient(to bottom,#090d1812 0,#090d1844 680px,var(--color-bg) 1100px),url('/assets/ambient-desktop.webp')}}
 @media(max-width:1023px){.panel,.app-nav,.modal-backdrop,.market-dialog,.owner-drawer-backdrop{backdrop-filter:none}}
 .asset-detail-grid{grid-template-columns:minmax(0,1fr)}

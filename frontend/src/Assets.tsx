@@ -1,3 +1,4 @@
+import {savedToken} from './api';
 import {useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {api,type Account} from './api';
 import {useLanguage,intlLocale} from './i18n';
@@ -25,6 +26,7 @@ export default function Assets({nodes,onMarket,onOffer,onRefresh,onBack,initialL
  useEffect(()=>{setQuote(null);setReview(false);setError('');if(!detail||detail.status!=='ACTIVE'||detail.mode!=='BASE')return;let live=true;
   void api<Quote>(`/v1/leases/${detail.id}/unbond/quote`).then(result=>{if(live)setQuote(result)}).catch(e=>{if(live)setError((e as Error).message)});return()=>{live=false}},[selected,detail?.status,detail?.settledDays]);
  async function execute(){if(!detail||!quote?.allowed||busy)return;setBusy(true);setError('');try{await api(`/v1/leases/${detail.id}/unbond`,{idempotencyKey:crypto.randomUUID()});await onRefresh();setReview(false)}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
+ async function downloadContract(){if(!detail)return;try{const response=await fetch('/api/v1/market/leases/'+detail.id+'/contract',{headers:{Authorization:'Bearer '+savedToken()}});if(!response.ok)throw Error(t('Не удалось загрузить документ.'));const url=URL.createObjectURL(await response.blob()),a=document.createElement('a');a.href=url;a.download='aethermind-contract.pdf';a.click();setTimeout(()=>URL.revokeObjectURL(url),30000)}catch(e){setError((e as Error).message)}}
  return <section ref={pageRef} className="assets-page" aria-labelledby="assets-heading" aria-busy={busy}>
   {detail?<>
    <PageHeader id="assets-heading" title={detail.node?.name||detail.nodeId} onBack={back} backLabel={t('Мои GPU')}/>
@@ -32,6 +34,7 @@ export default function Assets({nodes,onMarket,onOffer,onRefresh,onBack,initialL
    <GpuDetail node={detail} onRefresh={onRefresh}/>
    <div className="asset-detail-grid">
     <article className="panel"><h2>{t('Период работы')}</h2><p>{t('Заказ')}: {new Date(detail.createdAt).toLocaleDateString(locale)}</p><p>{t('Активация')}: {detail.activatedAt?new Date(detail.activatedAt).toLocaleString(locale):t('Ожидает оператора')}</p><p>{t('Завершение')}: {detail.epochEndsAt||detail.expiresAt?new Date(detail.epochEndsAt||detail.expiresAt!).toLocaleString(locale):'—'}</p></article>
+   {detail.offerVersion&&<button className="text-button" onClick={()=>void downloadContract()}>{t('Документ моего договора')}</button>}
    {detail.legacyTermsReview&&<article className="panel"><p role="alert">LEGACY_TERMS_REVIEW</p><button className="text-button" onClick={onOffer}>{t('Открыть оферту')}</button></article>}
    </div>
    {detail.status==='ACTIVE'&&detail.mode==='COMPOUND'&&<div className="panel"><h2>{t('Early Unbonding недоступен')}</h2><p>{t('Основной депозит и капитализированная прибыль заблокированы до завершения Epoch.')}</p></div>}

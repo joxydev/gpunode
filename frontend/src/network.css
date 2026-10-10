@@ -8,3 +8,6 @@
 @media(min-width:1024px){.toast-host{bottom:24px}.ambassador-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.ambassador-stats{grid-template-columns:minmax(0,1fr)}.category-options{position:fixed;top:auto;bottom:calc(var(--app-nav-height,76px) + env(safe-area-inset-bottom,0px) + 12px);left:12px;right:12px;max-height:min(380px,55dvh)}.app-keyboard-open .category-options{bottom:auto;top:calc(var(--app-viewport-height,100dvh) - min(320px,60dvh) - 16px);max-height:min(320px,60dvh)}}
 @media(prefers-reduced-motion:reduce){.network-toast{animation:none}}
+
+.network-toast.toast-closing{animation:toast-exit 150ms ease-in forwards}@keyframes toast-exit{to{opacity:0;translate:0 8px}}@media(prefers-reduced-motion:reduce){.network-toast.toast-closing{animation:none;opacity:0}}
+.ambassador-page progress{display:block;margin-block:8px;width:100%;height:8px}

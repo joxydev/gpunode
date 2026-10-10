@@ -133,10 +133,10 @@ test('structured TON Connect item contains same invoice and amount, without gues
 test('gasless estimate checks full USDT balance, stores exact quote once and never credits',async()=>{
  let row={id:'7c2bb844-a3bd-4fc1-a8c2-962148faab75',userId:'user',senderAddress:wallet.toRawString(),requestedMicros:10000000n,queryId,invoiceId,status:'PENDING',expiresAt,metadata:{}} as TonDeposit;
  let balance=10000000n,updates=0,estimates=0,credits=0;
- const tx={$queryRaw:async()=>[],tonDeposit:{findUniqueOrThrow:async()=>row,update:async({data}:{data:{metadata:TonDeposit['metadata']}})=>{row={...row,metadata:data.metadata};updates++;return row}}};
- const db={tonDeposit:{findUnique:async()=>row},tonWallet:{findUnique:async()=>({verified:true,walletVersion:'W5',walletId,publicKey:keys.publicKey.toString('hex'),address:wallet.toRawString()})},$transaction:async(fn:(tx:typeof tx)=>Promise<unknown>)=>fn(tx),walletLedger:{create:async()=>{credits++}}} as unknown as PrismaClient;
+ const tx={$queryRawUnsafe:async()=>[],$queryRaw:async()=>[],tonDeposit:{findMany:async()=>[],findUnique:async()=>row,findUniqueOrThrow:async()=>row,update:async({data}:{data:{metadata:TonDeposit['metadata']}})=>{row={...row,metadata:data.metadata};updates++;return row}}};
+ const db={tonDeposit:{findUnique:async()=>row},tonWallet:{findUnique:async()=>({verified:true,walletVersion:'W5',walletId,publicKey:keys.publicKey.toString('hex'),address:wallet.toRawString()})},$transaction:async(fn:(tx:typeof tx)=>Promise<unknown>)=>fn(Object.assign(tx,{tonWallet:{findUnique:async()=>({verified:true,walletVersion:'W5',walletId,publicKey:keys.publicKey.toString('hex'),address:wallet.toRawString()})}})),walletLedger:{create:async()=>{credits++}}} as unknown as PrismaClient;
  const mock={enabled:true,relay:async()=>relay,estimate:async()=>{estimates++;return estimate},usdtBalance:async()=>balance};
- const original=center.jettonWallet;center.jettonWallet=async()=>jetton;
+ const original=center.jettonWallet,sequence=center.seqno;center.jettonWallet=async()=>jetton;center.seqno=async()=>0;
  try{
   const service=new GaslessDeposits(db,mock as unknown as TonApiGasless,false,cfg);
   await assert.rejects(service.estimate('foreign',row.id));
@@ -150,7 +150,7 @@ test('gasless estimate checks full USDT balance, stores exact quote once and nev
   assert.match(stored.messageDigest,/^[0-9a-f]{64}$/);assert.equal(stored.relayAddress,relay.toRawString());assert.equal(stored.protocol,'gasless');
   assert.equal((await service.estimate('user',row.id)).estimateId,quote.estimateId);
   assert.equal(estimates,2,'prior validated quote is not requested again');
- }finally{center.jettonWallet=original}
+ }finally{center.jettonWallet=original;center.seqno=sequence}
 });
 
 test('gasless send rejects foreign, cancelled, expired, invalid estimate; retry uses identical BoC and never credits',async()=>{
@@ -159,11 +159,12 @@ test('gasless send rejects foreign, cancelled, expired, invalid estimate; retry 
  const internalBoc=beginCell().store(storeMessageRelaxed(internal({to:wallet,value:1n,body:signedBody}))).endCell().toBoc().toString('base64');
  assert.doesNotThrow(()=>verifiedExternal(internalBoc,{wallet,publicKey:keys.publicKey.toString('hex'),walletId,signRequest}));
  const signRequestDigest=(await import('node:crypto')).createHash('sha256').update(JSON.stringify(signRequest)).digest('hex');
- const base={id:'7c2bb844-a3bd-4fc1-a8c2-962148faab75',userId:'user',senderAddress:wallet.toRawString(),requestedMicros:10000000n,status:'PENDING',expiresAt,metadata:{gasless:{id:'e'.repeat(32),protocol:'gasless',fee:fee.toString(),requestedMicros:'10000000',totalMicros:'10100000',messageDigest:signRequestDigest,expiresAt:signRequest.validUntil,signRequest}}} as TonDeposit;
+ const base={id:'7c2bb844-a3bd-4fc1-a8c2-962148faab75',userId:'user',senderAddress:wallet.toRawString(),requestedMicros:10000000n,status:'PENDING',expiresAt,metadata:{gasless:{seqno:0,id:'e'.repeat(32),protocol:'gasless',fee:fee.toString(),requestedMicros:'10000000',totalMicros:'10100000',messageDigest:signRequestDigest,expiresAt:signRequest.validUntil,signRequest}}} as TonDeposit;
  let row=base,updates=0,ledgerCreates=0,attempts:string[]=[];
  const provider={enabled:true,send:async(_key:string,boc:string)=>{attempts.push(boc);if(attempts.length===1)throw Error('relayer timeout');return {external:'provider-hash',protocolName:'gasless'};}};
- const tx={ $queryRaw:async()=>[],tonDeposit:{findUniqueOrThrow:async()=>row,update:async({data}:{data:{metadata:any}})=>{row={...row,metadata:data.metadata};updates++;return row;}}};
- const db={tonDeposit:{findUnique:async()=>row},tonWallet:{findUnique:async()=>({verified:true,walletVersion:'W5',walletId,publicKey:keys.publicKey.toString('hex'),address:wallet.toRawString()})},$transaction:async(fn:(tx:typeof tx)=>Promise<any>)=>fn(tx),walletLedger:{create:async()=>{ledgerCreates++}}} as unknown as PrismaClient;
+ const tx={$queryRawUnsafe:async()=>[],$queryRaw:async()=>[],tonDeposit:{findMany:async()=>[],findUnique:async()=>row,findUniqueOrThrow:async()=>row,update:async({data}:{data:{metadata:any}})=>{row={...row,metadata:data.metadata};updates++;return row;}}};
+ const db={tonDeposit:{findUnique:async()=>row},tonWallet:{findUnique:async()=>({verified:true,walletVersion:'W5',walletId,publicKey:keys.publicKey.toString('hex'),address:wallet.toRawString()})},$transaction:async(fn:(tx:typeof tx)=>Promise<any>)=>fn(Object.assign(tx,{tonWallet:{findUnique:async()=>({verified:true,walletVersion:'W5',walletId,publicKey:keys.publicKey.toString('hex'),address:wallet.toRawString()})}})),walletLedger:{create:async()=>{ledgerCreates++}}} as unknown as PrismaClient;
+ const sequence=center.seqno;center.seqno=async()=>0;try{
  const service=new GaslessDeposits(db,provider as unknown as TonApiGasless,false,cfg);
  await assert.rejects(service.send('other',base.id,{estimateId:'e'.repeat(32),internalBoc}));
  row={...base,status:'CANCELLED'};await assert.rejects(service.send('user',base.id,{estimateId:'e'.repeat(32),internalBoc}));
@@ -178,4 +179,5 @@ test('gasless send rejects foreign, cancelled, expired, invalid estimate; retry 
  assert.equal(attempts.length,2);assert.equal(attempts[0],attempts[1]);assert.equal(ledgerCreates,0);
  assert.deepEqual(await service.send('user',base.id,{estimateId:'e'.repeat(32)}),{submitted:true});
  assert.equal(attempts.length,2);
+ }finally{center.seqno=sequence}
 });

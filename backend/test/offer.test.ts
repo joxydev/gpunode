@@ -6,8 +6,8 @@ import {join} from 'node:path';
 import {journey,OFFER_DOCUMENT_SHA256,OFFER_VERSION,offerDocumentMatches,offerTariffs} from '../src/offer.js';
 
 test('public offer constants and fixed tariff grid are immutable',()=>{
-  assert.equal(OFFER_VERSION,'88-2026-AI-2026-09-30-TON-2026-10-07');
-  assert.equal(OFFER_DOCUMENT_SHA256,'71c911b32f1987d64a901f6c55d790db0c391cdc79ba657e80ab98df08c47041');
+  assert.equal(OFFER_VERSION,'88-2026-AI-NETWORK-2026-10-10');
+  assert.equal(OFFER_DOCUMENT_SHA256,'acd5ee451e7b2d609f797c81520e2b87c87d96760f94a377401db54301a93792');
   assert.deepEqual(offerTariffs.map(t=>[t.depositUsdt,t.days,t.dailyPercent,t.compoundPercent,t.termPercent]),[
     ['50',30,'1.50','1.80','45'],
     ['300',60,'2.50','3.00','150'],
@@ -33,9 +33,9 @@ test('profile journey offers TON funding after tariff selection',()=>{
 test('acceptance is possible only for the PDF bytes of the new edition',()=>{
  const root=mkdtempSync(join(tmpdir(),'offer-'));
  try{
-  const path=join(root,'frontend/dist/documents/public-offer-aethermind.pdf');
+  const path=join(root,'frontend/dist/documents/public-offer-aethermind-network-2026-10-10.pdf');
   mkdirSync(join(root,'frontend/dist/documents'),{recursive:true});
-  copyFileSync(new URL('../../frontend/public/documents/public-offer-aethermind.pdf',import.meta.url),path);
+  copyFileSync(new URL('../../frontend/public/documents/public-offer-aethermind-network-2026-10-10.pdf',import.meta.url),path);
   assert.equal(offerDocumentMatches(root),true);
   writeFileSync(path,'stale offer');
   assert.equal(offerDocumentMatches(root),false);

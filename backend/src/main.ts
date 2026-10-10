@@ -1,4 +1,9 @@
 import 'reflect-metadata';
+import {readFileSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import {join} from 'node:path';
+import {Res} from '@nestjs/common';
+import type {FastifyReply} from 'fastify';
 import {Body, Controller, Get, Post, Patch, Param, Headers, Module, UnauthorizedException, ForbiddenException, BadRequestException, ServiceUnavailableException} from '@nestjs/common';
 import {NestFactory} from '@nestjs/core';
 import {FastifyAdapter,NestFastifyApplication} from '@nestjs/platform-fastify';
@@ -50,16 +55,18 @@ async function telegram(method:string,body:unknown){
 }
 @Controller('api')
 class Api {
+  @Get('v1/network/regulation') networkRegulation(){return {version:OFFER_VERSION,documentSha256:OFFER_DOCUMENT_SHA256,documentUrl:'/documents/public-offer-aethermind-network-2026-10-10.pdf',publishedAt:network.publication().toISOString(),effectiveAt:network.effective().toISOString(),historicalBackfillRequiresApproval:true};}
   @Get('v1/network/summary') async networkSummary(@Headers('authorization') auth:string){return network.summary(db,await agreed(auth));}
   @Get('v1/network/partners') async networkPartners(@Headers('authorization') auth:string,@QueryParam('page') page?:string,@QueryParam('line') line?:string,@QueryParam('state') state?:string){return network.partners(db,await agreed(auth),{page,line,state});}
   @Get('v1/network/rewards') async networkRewards(@Headers('authorization') auth:string,@QueryParam('page') page?:string,@QueryParam('kind') kind?:string){return network.rewards(db,await agreed(auth),page,kind);}
   @Get('v1/network/snapshots') async networkSnapshots(@Headers('authorization') auth:string,@QueryParam('page') page?:string){return network.snapshots(db,await agreed(auth),page);}
   @Get('v1/network/preview') async networkPreview(@Headers('authorization') auth:string){return network.preview(db,await agreed(auth));}
   @Get('v1/admin/network') async ownerNetwork(@Headers('authorization') auth:string){await owner(auth);return network.ownerOverview(db);}
-  @Get('v1/admin/network/period/:id') async ownerNetworkPeriod(@Headers('authorization') auth:string,@Param('id') id:string){await owner(auth);return network.periodDetail(db,id);}
+  @Get('v1/admin/network/period/:id') async ownerNetworkPeriod(@Headers('authorization') auth:string,@Param('id') id:string,@QueryParam('page') page?:string){await owner(auth);return network.periodDetail(db,id,page);}
   @Post('v1/admin/network/policy') async ownerNetworkPolicy(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){return network.approvePolicy(db,await owner(auth),body);}
   @Post('v1/admin/network/backfill/dry-run') async networkDryRun(@Headers('authorization') auth:string){await owner(auth);return db.$transaction(async tx=>{await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY');return network.backfillReport(tx)},{isolationLevel:'RepeatableRead',timeout:180000});}
   @Post('v1/admin/network/backfill/approve') async networkApprove(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){return network.approveBackfill(db,await owner(auth),field(body,'reportHash',64,64),field(body,'reason',1000,10));}
+  @Post('v1/admin/network/retry') async networkRetry(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){return network.retry(db,await owner(auth),field(body,'reason',1000,10));}
   @Post('v1/admin/network/review') async networkReview(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){return network.review(db,await owner(auth),body);}
    @Get('offer') offer(){return {number:OFFER_NUMBER,version:OFFER_VERSION,publishedAt:OFFER_PUBLISHED_AT,signedAt:OFFER_SIGNED_AT,documentSha256:OFFER_DOCUMENT_SHA256,tariffs:offerTariffs,paymentsEnabled:tonConfig.access==='public',financialOffer:financialOffer(),accrualEnabled:financialFlag('ACCRUAL'),compoundEnabled:financialFlag('COMPOUND'),currency:'USDT'};}
   @Post('auth/browser/start') async browserStart(@Req() req:FastifyRequest){
@@ -86,6 +93,14 @@ class Api {
     const userId=await agreed(auth),row=await db.userLease.findFirst({where:{id:leaseId(id),userId},include:{node:{select:{name:true}}}});
     if(!row)throw new NotFoundException('Оборудование не найдено.');
     return presentLease(row,new Date(),financialFlag('ACCRUAL')&&financialAccess(userId));
+  }
+  @Get('v1/market/leases/:id/contract') async contract(@Headers('authorization') auth:string,@Param('id') id:string,@Res() reply:FastifyReply){
+   const userId=await agreed(auth),lease=await db.userLease.findFirst({where:{id:leaseId(id),userId}});if(!lease?.offerDocumentSha256)throw new NotFoundException('CONTRACT_DOCUMENT_NOT_FOUND');
+   const root=fileURLToPath(new URL('../..',import.meta.url)),manifest=JSON.parse(readFileSync(join(root,'contracts/archive/manifest.json'),'utf8')) as {file:string;sha256:string}[];
+   const archived=manifest.find(v=>v.sha256===lease.offerDocumentSha256);let bytes:Buffer;
+   if(archived&&/^[A-Za-z0-9_.-]+$/.test(archived.file))bytes=readFileSync(join(root,'contracts/archive',archived.file));else if(lease.offerDocumentSha256===OFFER_DOCUMENT_SHA256)bytes=readFileSync(join(root,'frontend/dist/documents/public-offer-aethermind-network-2026-10-10.pdf'));else throw new NotFoundException('CONTRACT_DOCUMENT_NOT_FOUND');
+   const {createHash}=await import('node:crypto');if(createHash('sha256').update(bytes).digest('hex')!==lease.offerDocumentSha256)throw new ServiceUnavailableException('CONTRACT_DOCUMENT_HASH_MISMATCH');
+   return reply.header('Content-Type','application/pdf').header('Cache-Control','private, no-store').header('Content-Disposition','attachment; filename="aethermind-contract.pdf"').send(bytes);
   }
   @Get('v1/market/:id') async marketDetail(@Param('id') id:string){
     const rows=await db.$queryRawUnsafe<CatalogRow[]>('SELECT * FROM gpu_catalog WHERE id=$1 AND is_active=TRUE',id);
@@ -148,11 +163,10 @@ class Api {
   }
   @Get('me') async me(@Headers('authorization') auth:string){
     const id=identity(auth);const user=await db.user.findUnique({where:{id},include:{selectedTariff:true,offerAcceptances:{where:{version:OFFER_VERSION},take:1}}});if(!user)throw new UnauthorizedException();
-    const [requests,entries,total,refs,tickets,leases,unreadSupport,unreadNotifications]=await Promise.all([
+    const [requests,entries,total,tickets,leases,unreadSupport,unreadNotifications]=await Promise.all([
       db.rentalRequest.findMany({where:{userId:id,isTestOrder:false},orderBy:{createdAt:'desc'},take:50}),
       db.ledgerEntry.findMany({where:{userId:id},orderBy:{createdAt:'desc'},take:50}),
       db.ledgerEntry.aggregate({where:{userId:id},_sum:{amountMicros:true}}),
-      db.user.findMany({where:{referrerId:id},orderBy:{createdAt:'desc'},take:100,select:{id:true,createdAt:true,selectedTariffId:true,offerAcceptances:{where:{version:OFFER_VERSION},select:{id:true},take:1},leases:{where:{status:{in:['PROVISIONING','ACTIVE','OVERCLOCKED']}},select:{id:true},take:1}}}),
       db.ticket.findMany({where:{userId:id},orderBy:[{lastMessageAt:'desc'},{id:'desc'}],take:30,select:{id:true,category:true,subject:true,status:true,userUnread:true,lastMessageAt:true,createdAt:true,updatedAt:true,_count:{select:{messages:true}},messages:{orderBy:[{createdAt:'desc'},{id:'desc'}],take:1,select:{id:true,authorType:true,body:true,createdAt:true}}}}),
       db.userLease.findMany({where:{userId:id},orderBy:{createdAt:'desc'},take:30,include:{node:{select:{name:true}}}}),
       db.ticket.count({where:{userId:id,userUnread:true}}),
@@ -171,7 +185,6 @@ class Api {
     const newAcceptance=newOffer?await db.offerAcceptance.findUnique({where:{userId_version:{userId:id,version:newOffer.version}}}):null;
     const lockedBase=leases.filter(l=>l.status==='ACTIVE'&&l.mode==='BASE').reduce((sum,l)=>sum+(l.principalMicros||0n),0n);
     const lockedCompound=leases.filter(l=>l.status==='ACTIVE'&&l.mode==='COMPOUND').reduce((sum,l)=>sum+(l.compoundPrincipalMicros||l.principalMicros||0n),0n);
-    const referralItems=refs.map(r=>{const active=Boolean(r.leases.length),selectedTariff=Boolean(r.selectedTariffId),offerAccepted=Boolean(r.offerAcceptances.length);return {id:createHmac('sha256',SESSION_SECRET!).update('ref:'+r.id).digest('hex').slice(0,12),label:'Участник '+createHmac('sha256',SESSION_SECRET!).update(r.id).digest('hex').slice(0,4).toUpperCase(),stage:active?'ACTIVE':selectedTariff?'TARIFF_SELECTED':offerAccepted?'OFFER_ACCEPTED':'REGISTERED',joinedAt:r.createdAt};});
      return {user:{id:user.id,name:user.name,username:user.username,createdAt:user.createdAt,isOwner:id===OWNER_TELEGRAM_ID,preferredLanguage:user.preferredLanguage},agreement:{version:AGREEMENT_VERSION,accepted,acceptedAt:accepted?user.agreementAcceptedAt:null},offer:{number:OFFER_NUMBER,version:OFFER_VERSION,documentSha256:OFFER_DOCUMENT_SHA256,hasPriorAcceptance:Boolean(await db.offerAcceptance.count({where:{userId:id}})),accepted:Boolean(offerAcceptance)&&offerAcceptance?.documentSha256===OFFER_DOCUMENT_SHA256,acceptedAt:offerAcceptance?.acceptedAt||null},financialOffer:newOffer?{...newOffer,accepted:newAcceptance?.documentSha256===newOffer.sha256,acceptedAt:newAcceptance?.acceptedAt||null}:null,balance:microsToDecimal(balanceMicros),lockedBase:microsToDecimal(lockedBase),lockedCompound:microsToDecimal(lockedCompound),earnedToday:null,selectedTariff:selected?{...selected,selectedAt:user.selectedTariffAt}:null,nextAction:nextAccountAction({selected,balanceMicros,requests:requests.filter(x=>x.nodeId===user.selectedTariffId),leases:leases.filter(x=>x.nodeId===user.selectedTariffId),purchasesEnabled:publicOrdersReady()&&financialAccess(id),stockAvailable:selectedAvailability==='AVAILABLE',currentOfferAccepted:newAcceptance?.documentSha256===newOffer?.sha256}),journey:journey({selected:Boolean(selected),funded,ordered,epochComplete,pendingOrder,purchaseEnabled:publicOrdersReady()&&financialAccess(id)}),requests:requests.map(presentRequest),tickets,notifications:{unreadSupport,unreadOrders:requests.filter(r=>!r.isTestOrder&&r.userUnread).length,unread:unreadNotifications},activeNodes:leases.map(row=>presentLease(row,serverNow,accrualEnabled)),referrals:{total:await db.user.count({where:{referrerId:id}}),active:await db.user.count({where:{referrerId:id,leases:{some:{status:'ACTIVE'}}}}),items:[],rewardConfigured:true},entries:entries.map(e=>({...e,amountMicros:undefined,amount:microsToDecimal(e.amountMicros)})),paymentsEnabled:tonConfig.access==='public',accrualEnabled:financialFlag('ACCRUAL')&&financialAccess(id),compoundEnabled:financialFlag('COMPOUND')&&financialAccess(id),purchasesEnabled:publicOrdersReady()&&financialAccess(id),serverNow:serverNow.toISOString(),updatedAt:serverNow.toISOString()};
   }
   @Post('agreement/accept') async acceptAgreement(@Headers('authorization') auth:string,@Body() body:Record<string,unknown>){

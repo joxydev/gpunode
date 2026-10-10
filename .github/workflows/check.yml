@@ -27,6 +27,7 @@ jobs:
       PUBLIC_URL: https://example.invalid
       CI_INTEGRATION: '1'
       OFFER_PUBLISHED_AT: '2020-01-01'
+      NETWORK_PUBLISHED_AT: '2026-10-10T00:00:00.000Z'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -49,10 +50,10 @@ jobs:
       - run: node --check ops/integration.mjs
       - run: python3 -m py_compile ops/vps-ci.py
       - run: bash -n ops/language-deploy.sh ops/30_language_github.sh ops/31_language_vps.sh
-      - run: echo '71c911b32f1987d64a901f6c55d790db0c391cdc79ba657e80ab98df08c47041  frontend/public/documents/public-offer-aethermind.pdf' | sha256sum --check --strict
+      - run: echo 'acd5ee451e7b2d609f797c81520e2b87c87d96760f94a377401db54301a93792  frontend/public/documents/public-offer-aethermind-network-2026-10-10.pdf' | sha256sum --check --strict
       - run: node ops/integration.mjs
       - run: python3 ops/public-runtime-test.py
-      - run: node ops/financial-integration.mjs && node ops/epoch-integration.mjs && node ops/admin-credit-integration.mjs && node ops/public-runtime-integration.mjs
+      - run: node ops/financial-integration.mjs && node ops/epoch-integration.mjs && node ops/admin-credit-integration.mjs && node ops/public-runtime-integration.mjs && node ops/gpu-live-integration.mjs && node ops/network-integration.mjs
         env:
           FINANCIAL_CANARY_IDS: '55555,66666,77777,88888,99999,910005'
           FINANCIAL_PUBLIC_ACCESS: 'false'

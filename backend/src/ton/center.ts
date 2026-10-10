@@ -12,6 +12,7 @@ export class TonCenter {
   const master=this.client.open(JettonMaster.create(this.config.master));
   return master.getWalletAddress(owner);
  }
+ async seqno(address:Address):Promise<number>{const state=await this.client.getContractState(address);if(state.state==='uninitialized')return 0;if(state.state!=='active')throw Error('WALLET_STATE_UNAVAILABLE');const value=Number((await this.client.runMethod(address,'seqno')).stack.readNumber());if(!Number.isSafeInteger(value)||value<0)throw Error('INVALID_WALLET_SEQNO');return value;}
  async publicKey(address:Address):Promise<Buffer|null>{
   try{
    const result=await this.client.runMethod(address,'get_public_key');

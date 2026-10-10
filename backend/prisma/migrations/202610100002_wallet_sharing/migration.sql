@@ -1,3 +1,4 @@
+ALTER TABLE user_wallets DROP CONSTRAINT IF EXISTS user_wallets_address_key;
 DROP INDEX IF EXISTS user_wallets_address_key;
 CREATE INDEX user_wallets_network_address_idx ON user_wallets(network,address);
 CREATE INDEX deposits_sender_status_idx ON deposits(sender_address,status);

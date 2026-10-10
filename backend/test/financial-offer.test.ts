@@ -6,13 +6,13 @@ import {financialFlag,financialOffer,FINANCIAL_OFFER_DRAFT_VERSION} from '../src
 import {OFFER_DOCUMENT_SHA256,OFFER_VERSION,offerDocumentMatches} from '../src/offer.js';
 
 test('corrected TON edition has a fresh acceptance identity and the old editions remain archived',()=>{
- const old=readFileSync(new URL('../../frontend/public/documents/public-offer-aethermind-2026-09-21.pdf',import.meta.url));
+ const old=readFileSync(new URL('../../contracts/archive/public-offer-aethermind-2026-09-21.pdf',import.meta.url));
  assert.equal(createHash('sha256').update(old).digest('hex'),'b21177972dbdeedbea731e826b070ff7fb148ec1f96e7892536e67e40732ce88');
- const previous=readFileSync(new URL('../../frontend/public/documents/public-offer-aethermind-2026-09-30-trc-bep.pdf',import.meta.url));
+ const previous=readFileSync(new URL('../../contracts/archive/public-offer-aethermind-2026-09-30-trc-bep.pdf',import.meta.url));
  assert.equal(createHash('sha256').update(previous).digest('hex'),'0c8e7036a52be9d1ff415a5a44f76743246e032aff0fe14300fa11f973e1a8eb');
- const current=readFileSync(new URL('../../frontend/public/documents/public-offer-aethermind.pdf',import.meta.url));
+ const current=readFileSync(new URL('../../frontend/public/documents/public-offer-aethermind-network-2026-10-10.pdf',import.meta.url));
  assert.equal(createHash('sha256').update(current).digest('hex'),OFFER_DOCUMENT_SHA256);
- assert.equal(OFFER_VERSION,'88-2026-AI-2026-09-30-TON-2026-10-07');
+ assert.equal(OFFER_VERSION,'88-2026-AI-NETWORK-2026-10-10');
  const draft=readFileSync(new URL('../../docs/OFFER_FINANCIAL_DRAFT.pdf',import.meta.url));
  assert.equal(createHash('sha256').update(draft).digest('hex'),'93e4b0c7f6f191c753e326fdb4243d818ad533d96b2938f743bd9b5b31b885aa');
  const saved={...process.env};

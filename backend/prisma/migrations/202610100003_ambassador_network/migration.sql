@@ -37,6 +37,8 @@ CREATE TABLE network_carry(recipient text NOT NULL,kind text NOT NULL,line integ
 CREATE TABLE network_rank(user_id text NOT NULL REFERENCES "User"(id),rank integer NOT NULL CHECK(rank BETWEEN 1 AND 3),achieved_at timestamptz NOT NULL,source_id text NOT NULL,PRIMARY KEY(user_id,rank));
 CREATE TRIGGER immutable_network_rank BEFORE UPDATE OR DELETE ON network_rank FOR EACH ROW EXECUTE FUNCTION immutable_network_record();
 CREATE TABLE network_period(id text PRIMARY KEY,kind text NOT NULL,start_at timestamptz NOT NULL,end_at timestamptz NOT NULL,snapshot_at timestamptz NOT NULL,deadline timestamptz,status text NOT NULL,policy_version text,plan jsonb,frozen_at timestamptz,paid_micros bigint NOT NULL DEFAULT 0,undistributed_micros bigint NOT NULL DEFAULT 0,last_error text,created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE network_period_resolution(period_id text PRIMARY KEY REFERENCES network_period(id),policy_version text NOT NULL REFERENCES network_policy(version),plan jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
+CREATE TRIGGER immutable_network_period_resolution BEFORE UPDATE OR DELETE ON network_period_resolution FOR EACH ROW EXECUTE FUNCTION immutable_network_record();
 CREATE INDEX network_period_status_idx ON network_period(status,end_at);
 CREATE TABLE network_backfill(report_hash text PRIMARY KEY,report jsonb NOT NULL,actor_id text NOT NULL,reason text NOT NULL,approved_at timestamptz NOT NULL DEFAULT now());
 CREATE TRIGGER immutable_network_backfill BEFORE UPDATE OR DELETE ON network_backfill FOR EACH ROW EXECUTE FUNCTION immutable_network_record();
@@ -63,3 +65,10 @@ CREATE TRIGGER emit_network_fee AFTER INSERT ON "LedgerEntry" FOR EACH ROW EXECU
 INSERT INTO network_source SELECT 'ACT:'||id,'ACT',user_id,id,principal_micros,activated_at,'HISTORY',jsonb_build_object('nodeId',node_id,'offerVersion',offer_version,'documentSha256',offer_document_sha256),now() FROM user_leases WHERE activated_at IS NOT NULL AND principal_micros IS NOT NULL;
 INSERT INTO network_source SELECT 'DAILY:'||a.id,'DAILY',l.user_id,l.id,a.yield_micros,l.activated_at+a.day_index*interval '24 hours','HISTORY',jsonb_build_object('accrualId',a.id,'dayIndex',a.day_index,'mode',a.mode),now() FROM lease_accruals a JOIN user_leases l ON l.id=a.lease_id WHERE l.activated_at IS NOT NULL;
 INSERT INTO network_source SELECT 'FEE:'||e.id,'FEE',e."userId",l.id,-e."amountMicros",e."createdAt" AT TIME ZONE 'UTC','HISTORY',jsonb_build_object('ledgerId',e.id),now() FROM "LedgerEntry" e JOIN user_leases l ON e."sourceId"='lease:'||l.id||':unbond-fee' WHERE e.kind='EARLY_UNBONDING_FEE' AND e."amountMicros"<=0;
+
+CREATE FUNCTION network_frozen_period_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF OLD.plan IS NOT NULL AND (NEW.plan IS DISTINCT FROM OLD.plan OR NEW.policy_version IS DISTINCT FROM OLD.policy_version OR NEW.start_at IS DISTINCT FROM OLD.start_at OR NEW.end_at IS DISTINCT FROM OLD.end_at) THEN
+ RAISE EXCEPTION 'FROZEN_NETWORK_PERIOD_IMMUTABLE'; END IF; RETURN NEW;
+END $$;
+CREATE TRIGGER network_frozen_period BEFORE UPDATE ON network_period FOR EACH ROW EXECUTE FUNCTION network_frozen_period_guard();

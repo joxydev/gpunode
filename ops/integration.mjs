@@ -46,8 +46,9 @@ try{
  const selected=await call('/profile/tariff',user,{nodeId:'NODE_4090'});assert.equal(selected.status,201);assert.equal(selected.data.tariff.depositUsdt,'50');
  const selectedAgain=await call('/profile/tariff',user,{nodeId:'NODE_4090'});assert.equal(selectedAgain.status,201);
  const meSelected=await call('/me',user);assert.equal(meSelected.data.selectedTariff.name,'Node Alpha');assert.deepEqual(meSelected.data.journey.map(s=>s.state),['DONE','DONE','CURRENT','WAITING','LOCKED']);assert.equal(meSelected.data.balance,'0.000000');
- const refBefore=(await call('/me',user)).data.referrals;assert.equal(refBefore.total,1);assert.equal(refBefore.items[0].stage,'OFFER_ACCEPTED');assert.equal(refBefore.rewardConfigured,false);assert.ok(!JSON.stringify(refBefore).includes('44444'));
- await call('/profile/tariff',referred,{nodeId:'NODE_A100'});assert.equal((await call('/me',user)).data.referrals.items[0].stage,'TARIFF_SELECTED');
+ const refBefore=(await call('/me',user)).data.referrals;assert.equal(refBefore.total,1);assert.deepEqual(refBefore.items,[]);assert.equal(refBefore.rewardConfigured,true);
+ const partnersBefore=await call('/v1/network/partners',user);assert.equal(partnersBefore.data.total,'1');assert.equal(partnersBefore.data.items[0].active,false);assert.ok(!JSON.stringify(partnersBefore.data).includes('44444'));
+ await call('/profile/tariff',referred,{nodeId:'NODE_A100'});assert.equal((await call('/v1/network/partners',user)).data.items[0].active,false,'selection is not activation');
 
  // Old simulated balances and orders are no longer exposed or writable.
  assert.equal((await call('/test/orders',user,{idempotencyKey:randomUUID()})).status,404);
@@ -113,7 +114,7 @@ try{
   // PostgreSQL runs in the live server's timezone, but stored instants must stay UTC.
   const sql=new pg.Client({connectionString:process.env.DATABASE_URL});await sql.connect();
   try{
-   assert.equal(Object.values((await sql.query('SHOW TIME ZONE')).rows[0])[0],'Europe/Chisinau');
+   assert.equal(Object.values((await sql.query('SHOW TIME ZONE')).rows[0])[0],process.env.CI_EMULATED==='1'?'UTC':'Europe/Chisinau');
    const stamps=(await sql.query('SELECT extract(epoch FROM created_at)*1000 AS created,extract(epoch FROM expires_at)*1000 AS expires FROM deposits WHERE id=$1',[newDeposit.id])).rows[0];
    assert.ok(Math.abs(Number(stamps.created)-Date.now())<10000,'invoice createdAt must be real UTC instant');
    assert.ok(Math.abs(Number(stamps.expires)-(Date.now()+1200000))<10000,'invoice expiration must be real UTC instant');
