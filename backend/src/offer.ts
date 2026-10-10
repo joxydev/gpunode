@@ -5,12 +5,12 @@ import {fileURLToPath} from 'node:url';
 
 export const OFFER_NUMBER='88/2026-AI';
 // A distinct internal version requires a fresh acceptance for this corrected PDF.
-export const OFFER_VERSION='88-2026-AI-NETWORK-2026-10-10';
+export const OFFER_VERSION='88-2026-AI-NETWORK-2026-10-10-R2';
 export const OFFER_PUBLISHED_AT=process.env.NETWORK_PUBLISHED_AT?.slice(0,10)||process.env.OFFER_PUBLISHED_AT||'2026-10-10';
 export const OFFER_SIGNED_AT=null; // This PDF has no embedded digital signature.
-export const OFFER_DOCUMENT_SHA256='acd5ee451e7b2d609f797c81520e2b87c87d96760f94a377401db54301a93792';
+export const OFFER_DOCUMENT_SHA256='bfee177869e0c6d13c189df6eff3f772bb7a89509b9512711c3eb7ffdac52a0b';
 export function offerDocumentMatches(root=fileURLToPath(new URL('../..',import.meta.url))){
- try{return createHash('sha256').update(readFileSync(join(root,'frontend/dist/documents/public-offer-aethermind-network-2026-10-10.pdf'))).digest('hex')===OFFER_DOCUMENT_SHA256;}
+ try{return createHash('sha256').update(readFileSync(join(root,'frontend/dist/documents/public-offer-aethermind-network-2026-10-10-r2.pdf'))).digest('hex')===OFFER_DOCUMENT_SHA256;}
  catch{return false;}
 }
 

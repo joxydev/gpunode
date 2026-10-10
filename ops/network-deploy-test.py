@@ -72,7 +72,7 @@ class DeployFixtures(unittest.TestCase):
                     self.assertEqual(file.read_bytes(), before)
                     rows[0][field] = original
 
-    def test_publication_is_current_immutable_and_seven_utc_days(self):
+    def test_publication_is_current_immutable_and_immediate(self):
         with tempfile.TemporaryDirectory() as folder:
             root = pathlib.Path(folder)
             registry, flags = root / 'publication.json', root / 'flags.env'
@@ -86,13 +86,33 @@ class DeployFixtures(unittest.TestCase):
             effective = datetime.datetime.fromisoformat(record['effectiveAt'].replace('Z', '+00:00'))
             self.assertLessEqual(before - datetime.timedelta(seconds=1), published)
             self.assertLessEqual(published, datetime.datetime.now(datetime.timezone.utc))
-            self.assertEqual(effective - published, datetime.timedelta(days=7))
+            self.assertEqual(effective, published)
             saved = registry.read_bytes(), flags.read_bytes()
             self.assertEqual(run('network-publication.py', registry, flags, 'fixture-version', digest).returncode, 0)
             self.assertEqual(saved, (registry.read_bytes(), flags.read_bytes()))
             self.assertNotEqual(run('network-publication.py', registry, flags, 'other-version', digest).returncode, 0)
             self.assertEqual(saved, (registry.read_bytes(), flags.read_bytes()))
             self.assertEqual(flags.stat().st_mode & 0o777, 0o600)
+
+    def test_publication_upgrade_preserves_origin_and_old_identity(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = pathlib.Path(folder)
+            registry, flags = root / 'publication.json', root / 'flags.env'
+            old = {'schema':1,'version':'88-2026-AI-NETWORK-2026-10-10','sha256':'acd5ee451e7b2d609f797c81520e2b87c87d96760f94a377401db54301a93792','publishedAt':'2026-10-10T00:00:00.000Z','effectiveAt':'2026-10-17T00:00:00.000Z'}
+            registry.write_text(json.dumps(old));flags.write_text('ENABLE_PURCHASES=true\n')
+            version='88-2026-AI-NETWORK-2026-10-10-R2';digest='bfee177869e0c6d13c189df6eff3f772bb7a89509b9512711c3eb7ffdac52a0b'
+            result=run('network-publication.py',registry,flags,version,digest)
+            self.assertEqual(result.returncode,0,result.stderr)
+            current=json.loads(registry.read_text())
+            self.assertEqual(current['effectiveAt'],current['publishedAt'])
+            self.assertEqual(current['programStartedAt'],old['publishedAt'])
+            self.assertEqual(current['history'],[old])
+            self.assertIn('NETWORK_PROGRAM_STARTED_AT='+old['publishedAt'],flags.read_text())
+            saved=registry.read_bytes(),flags.read_bytes()
+            self.assertEqual(run('network-publication.py',registry,flags,version,digest).returncode,0)
+            self.assertEqual(saved,(registry.read_bytes(),flags.read_bytes()))
+            self.assertNotEqual(run('network-publication.py',registry,flags,version,'0'*64).returncode,0)
+            self.assertEqual(saved,(registry.read_bytes(),flags.read_bytes()))
 
     def test_nginx_preserves_other_hosts_and_is_repeatable(self):
         with tempfile.TemporaryDirectory() as folder:

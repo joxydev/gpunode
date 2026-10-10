@@ -87,6 +87,7 @@ try:
         'APP_COMMIT': 'vps-ci-' + secrets.token_hex(16),
         'OFFER_PUBLISHED_AT': '2020-01-01',
         'NETWORK_PUBLISHED_AT': '2026-10-10T00:00:00.000Z',
+        'NETWORK_PROGRAM_STARTED_AT': '2026-10-10T00:00:00.000Z',
     })
     run(['npm', 'run', 'db:migrate'])
     run(['node', '--check', 'ops/integration.mjs'])

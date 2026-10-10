@@ -1,0 +1,3 @@
+.protected-art{display:block;width:var(--art-width,100%);height:var(--art-height,auto);aspect-ratio:1;background-position:center;background-size:contain;background-repeat:no-repeat}
+.protected-art,img,picture,.core-visual{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;-webkit-user-drag:none}
+img{pointer-events:none}

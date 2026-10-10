@@ -12,7 +12,8 @@ const query=<T>(db:DB,sql:string,...values:unknown[])=>db.$queryRawUnsafe<T[]>(s
 export const serial=(v:unknown):any=>JSON.parse(JSON.stringify(v,(_,x)=>typeof x==='bigint'?x.toString():x));
 const iso=(d:Date)=>new Date(d).toISOString();
 export function publication(){const text=process.env.NETWORK_PUBLISHED_AT;const p=text?new Date(text):null;if(!p||!Number.isFinite(p.getTime())||p>new Date())throw Error('NETWORK_PUBLICATION_REQUIRED');return p}
-export function effective(){return new Date(publication().getTime()+7*DAY)}
+export function effective(){return publication()}
+export function programStarted(){const value=new Date(process.env.NETWORK_PROGRAM_STARTED_AT||publication().toISOString());if(!Number.isFinite(value.getTime())||value>publication())throw Error('NETWORK_PROGRAM_ORIGIN_INVALID');return value}
 export async function policy(db:DB):Promise<Policy|null>{const rows=await query<{version:string;decisions:Decisions}>(db,'SELECT version,decisions FROM network_policy ORDER BY created_at DESC,version DESC LIMIT 1');return rows[0]||null}
 const policyVersion=(p:Policy|null)=>p?.version||'RULES_PENDING';
 async function qualificationLeases(db:DB,user:string,at:Date){return query<Lease>(db,`SELECT l.* FROM user_leases l WHERE (l.user_id=$1 OR EXISTS(SELECT 1 FROM network_paths n WHERE n.ancestor=$1 AND n.descendant=l.user_id AND n.joined_at<=$2)) AND l.activated_at<=$2 AND l.principal_micros IS NOT NULL ORDER BY l.activated_at,l.id`,user,at)}
@@ -49,7 +50,7 @@ async function plans(db:DB,s:Source,p:Policy|null,scope:string,carry:Map<string,
    const a=portion(s.amount_micros,bps,before);carry.set(key,a.remainder);
    items.push({id:`${scope}:${s.id}:${path.ancestor}:${s.kind}:${line}`,recipient:path.ancestor,source:s.id,kind:s.kind,line,scope,base:s.amount_micros.toString(),bps,amount:a.amount.toString(),remainderBefore:before,remainderAfter:a.remainder,at:iso(s.occurred_at)});
   }}
-  if(q&&p)for(const rank of [1,2,3])if(q.rank>=rank){const key=`${path.ancestor}:${rank}`;if(ranks.has(key))continue;if(scope==='LIVE'&&(await qualification(db,path.ancestor,publication(),p)).rank>=rank){waiting.push('HISTORICAL_RANK_APPROVAL_REQUIRED');continue;}ranks.add(key);const amount=rank===2?500000000n:rank===3?2500000000n:0n;
+  if(q&&p)for(const rank of [1,2,3])if(q.rank>=rank){const key=`${path.ancestor}:${rank}`;if(ranks.has(key))continue;if(scope==='LIVE'&&(await qualification(db,path.ancestor,programStarted(),p)).rank>=rank){waiting.push('HISTORICAL_RANK_APPROVAL_REQUIRED');continue;}ranks.add(key);const amount=rank===2?500000000n:rank===3?2500000000n:0n;
    items.push({id:`RANK:${path.ancestor}:${rank}`,recipient:path.ancestor,source:s.id,kind:'RANK',line:rank,scope,base:'0',bps:0,amount:amount.toString(),remainderBefore:0,remainderAfter:0,at:iso(s.occurred_at),details:{rank}});
   }
  }
@@ -69,7 +70,7 @@ async function pay(tx:DB,item:Planned,version:string){
  return true;
 }
 export async function backfillReport(db:DB){
- const p=await policy(db),pub=publication(),sources=await query<Source>(db,'SELECT * FROM network_source WHERE scope=\'HISTORY\' OR occurred_at<$1 ORDER BY occurred_at,id',pub);
+ const p=await policy(db),pub=programStarted(),sources=await query<Source>(db,'SELECT * FROM network_source WHERE scope=\'HISTORY\' OR occurred_at<$1 ORDER BY occurred_at,id',pub);
  const paid=new Set((await query<{id:string}>(db,'SELECT id FROM network_reward')).map(x=>x.id)),rankset=new Set((await query<{user_id:string;rank:number}>(db,'SELECT user_id,rank FROM network_rank')).map(x=>x.user_id+':'+x.rank));
  const carry=new Map<string,number>(),items:Planned[]=[],waiting=new Set<string>();
  for(const s of sources){const result=await plans(db,s,p,'HISTORY',carry,rankset);result.waiting.forEach(x=>waiting.add(x));items.push(...result.items.filter(x=>!paid.has(x.id)));}
@@ -126,7 +127,7 @@ export async function settlePeriod(db:PrismaClient,id:string,kind:'STRUCT'|'POOL
  if(Number(done[0].n)===items.length){const waiting=row.plan.waiting&&!resolution;await db.$executeRawUnsafe('UPDATE network_period SET status=$2,last_error=$3 WHERE id=$1',id,waiting?'WAITING_REVIEW':BigInt(row.plan.undistributed)>0n?'UNDISTRIBUTED':'CLOSED',waiting?'FIRST_LINE_RULE_REVIEW':null);}
 }
 export async function runNetwork(db:PrismaClient,now=new Date()){
- const pub=publication(),p=await policy(db),version=policyVersion(p);
+ const pub=programStarted(),p=await policy(db),version=policyVersion(p);
  const rows=await query<Source>(db,`SELECT s.* FROM network_source s LEFT JOIN network_source_processing x ON x.source_id=s.id WHERE s.scope<>'HISTORY' AND s.occurred_at>=$1 AND s.occurred_at<=$3 AND (x.source_id IS NULL OR x.policy_version<>$2 OR x.status='FAILED') ORDER BY s.occurred_at,s.id LIMIT 100`,pub,version,now);let processed=0;
  const failures:string[]=[];for(const s of rows)try{await db.$transaction(async tx=>{
   const paid=new Set((await query<{id:string}>(tx,'SELECT id FROM network_reward WHERE source_id=$1',s.id)).map(x=>x.id));const ranks=new Set((await query<{user_id:string;rank:number}>(tx,'SELECT user_id,rank FROM network_rank')).map(x=>x.user_id+':'+x.rank));

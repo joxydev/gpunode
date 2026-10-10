@@ -43,7 +43,7 @@ available=$(df -Pk /srv | awk 'NR==2 {print $4}')
 ((available>1800000)) || fail 'Нужно минимум 1.8 ГБ свободного места.'
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 release="/srv/releases/gpunode/$stamp-$sha"
-backup="/srv/backups/gpunode/network-105-$stamp"
+backup="/srv/backups/gpunode/offer-partners-107-$stamp"
 install -d -m 0700 "$backup"
 printf '%s\n' "$previous" > "$backup/previous-release.txt"
 printf '%s\n' "$sha" > "$backup/requested-commit.txt"
@@ -62,7 +62,7 @@ was_ambassador_active=0; systemctl is-active --quiet gpunode-ambassador.timer &&
 was_ambassador_enabled=0; systemctl is-enabled --quiet gpunode-ambassador.timer && was_ambassador_enabled=1
 runuser -u postgres -- pg_dump -Fc aethermind_v1 > "$backup/database.dump"
 pg_restore --list "$backup/database.dump" >/dev/null
-edited=0; switched=0; timer_touched=0; runtime_touched=0; migrated=0; nginx_touched=0; services_stopped=0; publication_created=0
+edited=0; switched=0; timer_touched=0; runtime_touched=0; migrated=0; nginx_touched=0; services_stopped=0; publication_created=0; publication_updated=0
 rollback(){
   local result=${1:-1} failed_line=${2:-unknown}
   trap - ERR INT TERM HUP
@@ -92,7 +92,7 @@ PY_DIAGNOSTICS
   # Never restore financial rows. Older code is allowed only before new incompatible usage.
   incompatible=0
   if ((migrated&&switched)); then
-    usage=$(runuser -u postgres -- psql -Atqc "SELECT EXISTS(SELECT 1 FROM user_wallets GROUP BY network,address HAVING count(*)>1) OR EXISTS(SELECT 1 FROM user_leases WHERE status IN ('PROVISIONING','ACTIVE','OVERCLOCKED','EXPIRED') GROUP BY user_id HAVING count(*)>1) OR EXISTS(SELECT 1 FROM offer_acceptances WHERE version='88-2026-AI-NETWORK-2026-10-10') OR EXISTS(SELECT 1 FROM \"LedgerEntry\" WHERE kind LIKE 'AMB_%')" aethermind_v1 2>/dev/null)
+    usage=$(runuser -u postgres -- psql -Atqc "SELECT EXISTS(SELECT 1 FROM user_wallets GROUP BY network,address HAVING count(*)>1) OR EXISTS(SELECT 1 FROM user_leases WHERE status IN ('PROVISIONING','ACTIVE','OVERCLOCKED','EXPIRED') GROUP BY user_id HAVING count(*)>1) OR EXISTS(SELECT 1 FROM offer_acceptances WHERE version='88-2026-AI-NETWORK-2026-10-10-R2') OR EXISTS(SELECT 1 FROM \"LedgerEntry\" WHERE kind LIKE 'AMB_%')" aethermind_v1 2>/dev/null)
     [[ $usage == f ]] || incompatible=1
   fi
   if ((incompatible)); then
@@ -102,7 +102,7 @@ PY_DIAGNOSTICS
     printf 'Новые привязки, договоры, акцепты или выплаты требуют текущего кода. Релиз сохранён, Ambassador timer остановлен. БД не восстанавливалась. Нужен исправляющий выпуск. Бэкап: %s\n' "$backup" >&2
     exit 1
   fi
-  if ((publication_created&&!switched)); then rm -f -- "$root/shared/network-publication.json"; fi
+  if ((!switched&&publication_updated)); then if ((publication_created)); then rm -f -- "$root/shared/network-publication.json"; else cp -a -- "$backup/publication-before.json" "$root/shared/network-publication.json"; fi; fi
   if ((nginx_touched)) && [[ -f $backup/nginx-changes.json ]]; then
     python3 - "$backup/nginx-changes.json" <<'PY_RESTORE_NGINX'
 import json,pathlib,sys
@@ -178,21 +178,21 @@ runuser -u www-data -- test ! -r "$release/contracts/archive/manifest.json" || f
 python3 - "$release/contracts/archive" <<'PY_PRIVATE_ARCHIVE'
 import hashlib,json,pathlib,sys
 folder=pathlib.Path(sys.argv[1]);entries=json.loads((folder/'manifest.json').read_text())
-if len(entries)!=3:raise SystemExit('Unexpected private contract manifest')
+if len(entries)!=4:raise SystemExit('Unexpected private contract manifest')
 for entry in entries:
  path=folder/entry['file']
  if path.parent!=folder or not path.is_file() or path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest()!=entry['sha256']:raise SystemExit('Private contract archive checksum failed')
 PY_PRIVATE_ARCHIVE
 [[ -f $release/.aethermind-project && -f $release/package-lock.json ]] || fail 'Не тот проект.'
-grep -Fq "OFFER_VERSION='88-2026-AI-NETWORK-2026-10-10'" "$release/backend/src/offer.ts" || fail 'Неверная версия.'
+grep -Fq "OFFER_VERSION='88-2026-AI-NETWORK-2026-10-10-R2'" "$release/backend/src/offer.ts" || fail 'Неверная версия.'
 [[ -f $release/frontend/src/ProductTour.tsx && -f $release/frontend/src/OwnerCredit.tsx && -f $release/backend/src/admin-credit.ts && -f $release/ops/admin-credit-integration.mjs && -f $release/backend/prisma/migrations/20261008000100_admin_balance_credit/migration.sql ]] || fail 'В архиве нет нового пополнения владельцем.'
 grep -Fq 'aethermind-tour-v2' "$release/frontend/src/ProductTour.tsx" || fail 'В архиве старая демонстрация.'
-[[ -f $release/ops/public-runtime.py && -f $release/ops/public-runtime-check.mjs && -f $release/ops/public-runtime-flags.json ]] || fail 'В архиве нет исправления настроек служб. Выполните скрипт 104.'
-if [[ ! -f $release/ops/epoch-integration.mjs ]] || ! grep -Fq 'let last:string|undefined' "$release/backend/src/epoch-settle.ts"; then fail 'В архиве старый Epoch worker. Выполните скрипт 104.'; fi
+[[ -f $release/ops/public-runtime.py && -f $release/ops/public-runtime-check.mjs && -f $release/ops/public-runtime-flags.json ]] || fail 'В архиве нет исправления настроек служб. Выполните скрипт 106.'
+if [[ ! -f $release/ops/epoch-integration.mjs ]] || ! grep -Fq 'let last:string|undefined' "$release/backend/src/epoch-settle.ts"; then fail 'В архиве старый Epoch worker. Выполните скрипт 106.'; fi
 [[ -f $release/frontend/src/design-tokens.css && -f $release/frontend/src/UI.tsx && -f $release/frontend/src/ui.css && -f $release/frontend/src/viewport.ts && -f $release/frontend/src/redesign-translations.ts ]] || fail 'В архиве нет полного редизайна.'
 grep -Fq -- '--color-primary: #26e6ff;' "$release/frontend/src/design-tokens.css" || fail 'В архиве нет общей палитры.'
 grep -Fq 'className="app-nav"' "$release/frontend/src/App.tsx" || fail 'В архиве нет новой навигации.'
-printf '%s  %s\n' 'acd5ee451e7b2d609f797c81520e2b87c87d96760f94a377401db54301a93792' "$release/frontend/public/documents/public-offer-aethermind-network-2026-10-10.pdf" | sha256sum -c --status || fail 'PDF не совпал.'
+printf '%s  %s\n' 'bfee177869e0c6d13c189df6eff3f772bb7a89509b9512711c3eb7ffdac52a0b' "$release/frontend/public/documents/public-offer-aethermind-network-2026-10-10-r2.pdf" | sha256sum -c --status || fail 'PDF не совпал.'
 printf '%s  %s\n' '0c8e7036a52be9d1ff415a5a44f76743246e032aff0fe14300fa11f973e1a8eb' "$release/contracts/archive/public-offer-aethermind-2026-09-30-trc-bep.pdf" | sha256sum -c --status || fail 'Архив предыдущей редакции не совпал.'
 [[ -f $release/backend/src/live-accrual.ts && -f $release/frontend/src/GpuLive.tsx && -f $release/frontend/src/live-accrual.ts && -f $release/ops/gpu-live-integration.mjs ]] || fail 'В архиве нет полного GPU Live обновления.'
 python3 - "$release/ops/public-runtime-flags.json" <<'PY_GPU_COMPOUND_FLAGS'
@@ -212,7 +212,7 @@ runuser -u deploy -- env PATH="$PATH" NODE_OPTIONS=--max-old-space-size=384 bash
   python3 ops/network-deploy-test.py
   npm run build
 ' _ "$release"
-printf '%s  %s\n' 'acd5ee451e7b2d609f797c81520e2b87c87d96760f94a377401db54301a93792' "$release/frontend/dist/documents/public-offer-aethermind-network-2026-10-10.pdf" | sha256sum -c --status || fail 'PDF сборки не совпал.'
+printf '%s  %s\n' 'bfee177869e0c6d13c189df6eff3f772bb7a89509b9512711c3eb7ffdac52a0b' "$release/frontend/dist/documents/public-offer-aethermind-network-2026-10-10-r2.pdf" | sha256sum -c --status || fail 'PDF сборки не совпал.'
 phase 'интеграционные проверки на отдельной PostgreSQL'
 runuser -u deploy -- env PATH="$PATH" python3 "$release/ops/vps-ci.py" "$release"
 # Build inherits umask 077: make every public asset traversable/readable to Nginx.
@@ -299,13 +299,14 @@ install -d -m 0755 /etc/systemd/system/gpunode.service.d
 printf '[Service]\nEnvironment=APP_COMMIT=%s\n' "$sha" > "$dropin"
 chmod 0644 "$dropin"
 phase 'публикация новой редакции и непубличный архив'
-[[ -e $root/shared/network-publication.json ]] || publication_created=1
-python3 "$release/ops/network-publication.py" "$root/shared/network-publication.json" "$flagfile" '88-2026-AI-NETWORK-2026-10-10' 'acd5ee451e7b2d609f797c81520e2b87c87d96760f94a377401db54301a93792' > "$backup/publication.json"
+if [[ -e $root/shared/network-publication.json ]]; then cp -a -- "$root/shared/network-publication.json" "$backup/publication-before.json"; else publication_created=1; fi
+publication_updated=1
+python3 "$release/ops/network-publication.py" "$root/shared/network-publication.json" "$flagfile" '88-2026-AI-NETWORK-2026-10-10-R2' 'bfee177869e0c6d13c189df6eff3f772bb7a89509b9512711c3eb7ffdac52a0b' > "$backup/publication.json"
 # Keep the UTC publication value in the literal runtime for CLI maintenance too.
 python3 - "$flagfile" "$envfile" <<'PY_NETWORK_ENV'
 import pathlib,re,sys
-flags,env=map(pathlib.Path,sys.argv[1:]);line=next(v for v in flags.read_text().splitlines() if v.startswith('NETWORK_PUBLISHED_AT='))
-text='\n'.join(v for v in env.read_text().splitlines() if not re.match(r'^\s*(?:export\s+)?NETWORK_PUBLISHED_AT\s*=',v))+'\n'+line+'\n';env.write_text(text);env.chmod(0o600)
+flags,env=map(pathlib.Path,sys.argv[1:]);lines=[v for v in flags.read_text().splitlines() if v.startswith(('NETWORK_PUBLISHED_AT=','NETWORK_PROGRAM_STARTED_AT='))]
+text='\n'.join(v for v in env.read_text().splitlines() if not re.match(r'^\s*(?:export\s+)?NETWORK_(?:PUBLISHED_AT|PROGRAM_STARTED_AT)\s*=',v))+'\n'+'\n'.join(lines)+'\n';env.write_text(text);env.chmod(0o600)
 PY_NETWORK_ENV
 ln -sfn "$release" "$root/current-next"
 mv -Tf "$root/current-next" "$root/current"
@@ -314,7 +315,7 @@ systemctl daemon-reload
 systemctl reload nginx
 python3 "$release/ops/public-runtime.py" verify --envfile "$envfile" --flagfile "$flagfile"
 phase 'первый запуск исправленного Epoch worker'
-systemctl reset-failed gpunode-epoch-settle.service || true
+systemctl reset-failed gpunode-epoch-settle.service >/dev/null 2>&1 || true
 if ! systemctl start gpunode-epoch-settle.service; then fail 'Первый запуск Epoch worker завершился ошибкой. Журнал службы будет выведен перед откатом.'; fi
 phase 'перезапуск API и TON watcher'
 systemctl restart gpunode.service
@@ -332,7 +333,7 @@ assert health.get('status')=='ok' and health.get('commit')==sys.argv[2],health
 PY_HEALTH
 phase 'первый расчёт Ambassador без исторических зачислений'
 python3 "$release/ops/run-runtime.py" "$release" "$envfile" "$flagfile" -- node ops/network-backfill-dry-run.mjs "$backup/network-history-dry-run.json"
-systemctl reset-failed gpunode-ambassador.service || true
+systemctl reset-failed gpunode-ambassador.service >/dev/null 2>&1 || true
 systemctl start gpunode-ambassador.service
 [[ $(systemctl show gpunode-ambassador.service -p Result --value) == success ]] || fail 'Ambassador worker завершился ошибкой.'
 phase 'проверка фактических настроек API и TON watcher'
@@ -341,8 +342,8 @@ curl -fsS --max-time 15 http://127.0.0.1:3100/api/offer > "$backup/offer.json" |
 python3 - "$backup/offer.json" <<'PY_OFFER'
 import json,sys
 offer=json.load(open(sys.argv[1]))
-assert offer['version']=='88-2026-AI-NETWORK-2026-10-10',offer
-assert offer['documentSha256']=='acd5ee451e7b2d609f797c81520e2b87c87d96760f94a377401db54301a93792',offer
+assert offer['version']=='88-2026-AI-NETWORK-2026-10-10-R2',offer
+assert offer['documentSha256']=='bfee177869e0c6d13c189df6eff3f772bb7a89509b9512711c3eb7ffdac52a0b',offer
 assert offer.get('paymentsEnabled') is True,'API: public deposits are disabled'
 assert offer.get('accrualEnabled') is True,'API: accrual is disabled despite public runtime binding'
 assert offer.get('compoundEnabled') is True,'API: public Compound is disabled'
@@ -396,11 +397,17 @@ for variant in ambient-mobile ambient-desktop; do
   expected_asset=$(sha256sum "$release/frontend/dist/$path"); expected_asset=${expected_asset%% *}
   printf '%s  %s\n' "$expected_asset" "$backup/public-asset.webp" | sha256sum -c --status || fail "Не совпал фон $path."
 done
+for variant in 320 640; do
+  path="assets/partners/ambassador-$variant.webp"
+  curl -fsS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 "https://31.77.226.26/$path" -o "$backup/partner-asset.webp" || fail "Nginx не отдал $path."
+  expected_asset=$(sha256sum "$release/frontend/dist/$path"); expected_asset=${expected_asset%% *}
+  printf '%s  %s\n' "$expected_asset" "$backup/partner-asset.webp" | sha256sum -c --status || fail "Не совпала иллюстрация $path."
+done
 [[ $(systemctl show gpunode-epoch-settle.service -p Result --value) == success && $(systemctl show gpunode-epoch-settle.service -p ExecMainStatus --value) == 0 ]] || fail 'Epoch завершился с ошибкой.'
 
 
-curl -fsS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 https://31.77.226.26/documents/public-offer-aethermind-network-2026-10-10.pdf -o "$backup/public-offer.pdf" || fail 'Nginx не отдал публичный PDF.'
-printf '%s  %s\n' 'acd5ee451e7b2d609f797c81520e2b87c87d96760f94a377401db54301a93792' "$backup/public-offer.pdf" | sha256sum -c --status || fail 'Публичный PDF не совпал.'
+curl -fsS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 https://31.77.226.26/documents/public-offer-aethermind-network-2026-10-10-r2.pdf -o "$backup/public-offer.pdf" || fail 'Nginx не отдал публичный PDF.'
+printf '%s  %s\n' 'bfee177869e0c6d13c189df6eff3f772bb7a89509b9512711c3eb7ffdac52a0b' "$backup/public-offer.pdf" | sha256sum -c --status || fail 'Публичный PDF не совпал.'
 systemctl is-active --quiet gpunode.service || fail 'API не активен.'
 systemctl is-active --quiet gpunode-ton-watcher.service || fail 'Watcher не активен.'
 nginx -t
@@ -410,7 +417,7 @@ python3 - "$backup/regulation.json" "$backup/publication.json" <<'PY_REGULATION'
 import json,sys
 r,p=map(lambda path:json.load(open(path)),sys.argv[1:]);assert r['version']==p['version'] and r['documentSha256']==p['sha256'];assert r['publishedAt']==p['publishedAt'] and r['effectiveAt']==p['effectiveAt']
 PY_REGULATION
-for old in public-offer-aethermind.pdf public-offer-aethermind-2026-09-21.pdf public-offer-aethermind-2026-09-30-trc-bep.pdf public-offer-aethermind-ton-2026-10-07.pdf; do
+for old in public-offer-aethermind.pdf public-offer-aethermind-2026-09-21.pdf public-offer-aethermind-2026-09-30-trc-bep.pdf public-offer-aethermind-ton-2026-10-07.pdf public-offer-aethermind-network-2026-10-10.pdf; do
  code=$(curl -sS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 -o /dev/null -w '%{http_code}' "https://31.77.226.26/documents/$old")
  [[ $code == 410 ]] || fail "Старая публичная оферта не закрыта: $old, HTTP $code."
 done

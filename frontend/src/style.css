@@ -76,7 +76,7 @@ footer > span { color: var(--color-text-muted); font-size: .75rem; margin-left: 
 .activity-skeleton { display: grid; gap: 12px; padding: 16px; }
 .activity-skeleton i { height: 56px; border-radius: 14px; background: var(--color-surface-raised); }
 .splash { min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
-.splash > img { width: 180px; height: 180px; border-radius: 50%; }
+.splash > .protected-art { width: 180px; height: 180px; border-radius: 50%; }
 .splash-ring { width: 240px; height: 240px; position: absolute; top: calc(50% - 145px); }
 .splash p { margin-top: 30px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }

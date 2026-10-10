@@ -79,7 +79,7 @@ try{
  assert.equal((await db.gpuCatalog.findUniqueOrThrow({where:{id:'NODE_A100'}})).availableSupply,4);
 
  const betaBase=await call('/v1/market/buy',beta,{nodeId:'NODE_A100',compoundEnabled:false,idempotencyKey:randomUUID()});assert.equal(betaBase.status,201);
- await call(`/v1/admin/leases/${betaBase.data.id}/activate`,owner,{});
+ {const activation=await call(`/v1/admin/leases/${betaBase.data.id}/activate`,owner,{});assert.equal(activation.status,201,JSON.stringify(activation.data));}
  const betaStart=(await db.userLease.findUniqueOrThrow({where:{id:betaBase.data.id}})).activatedAt.getTime();
  const fee=await unbond(db,'66666',betaBase.data.id,{idempotencyKey:randomUUID()},new Date(betaStart+44*DAY));
  assert.equal(fee.unbondFee,'9.000000');assert.equal(fee.settledDays,44);
@@ -87,7 +87,7 @@ try{
 
  const compoundUser=await setup(77777,300);
  const compound=await call('/v1/market/buy',compoundUser,{nodeId:'NODE_A100',compoundEnabled:true,idempotencyKey:randomUUID()});assert.equal(compound.status,201);
- await call(`/v1/admin/leases/${compound.data.id}/activate`,owner,{});
+ {const activation=await call(`/v1/admin/leases/${compound.data.id}/activate`,owner,{});assert.equal(activation.status,201,JSON.stringify(activation.data));}
  const compoundStart=(await db.userLease.findUniqueOrThrow({where:{id:compound.data.id}})).activatedAt.getTime();
  assert.equal((await call(`/v1/leases/${compound.data.id}/unbond/quote`,compoundUser)).data.reason,'COMPOUND_LOCKED');
  await settleLease(db,compound.data.id,new Date(compoundStart+31*DAY));
@@ -104,7 +104,7 @@ try{
 
  const enterprise=await setup(88888,1200);
  const pod=await call('/v1/market/buy',enterprise,{nodeId:'NODE_H100',compoundEnabled:true,idempotencyKey:randomUUID()});assert.equal(pod.status,201);
- await call(`/v1/admin/leases/${pod.data.id}/activate`,owner,{});
+ {const activation=await call(`/v1/admin/leases/${pod.data.id}/activate`,owner,{});assert.equal(activation.status,201,JSON.stringify(activation.data));}
  const podStart=(await db.userLease.findUniqueOrThrow({where:{id:pod.data.id}})).activatedAt.getTime();
  await settleLease(db,pod.data.id,new Date(podStart+60*DAY));
  assert.equal((await db.userLease.findUniqueOrThrow({where:{id:pod.data.id}})).currentCompoundBlock,3);

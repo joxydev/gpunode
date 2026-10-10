@@ -1,3 +1,4 @@
+import {ProtectedArt} from './ProtectedArt';
 import {memo,useCallback,useEffect,useRef,useState,useSyncExternalStore,type RefObject} from 'react';
 import type {Lease} from './api';
 import {useLanguage} from './i18n';
@@ -16,7 +17,7 @@ const hardware:Record<string,{path:string;chip:string;purpose:string}>={
 export function GpuArt({node,compact=false,eager=false}:{node:Lease;compact?:boolean;eager?:boolean}){
  const {t}=useLanguage(),info=hardware[node.nodeId];if(!info)return <span className="gpu-unknown">GPU</span>;
  const prefix=compact?'card':'detail',sizes=compact?[160,320,480]:[360,720,1080];
- return <img className={compact?'gpu-thumbnail':'gpu-art'} src={`${info.path}/${prefix}-${sizes[0]}.webp`}
+ return <ProtectedArt className={compact?'gpu-thumbnail':'gpu-art'} src={`${info.path}/${prefix}-${sizes[0]}.webp`}
   srcSet={sizes.map(size=>`${info.path}/${prefix}-${size}.webp ${size}w`).join(', ')} sizes={compact?'80px':'(min-width:1024px) 360px, (min-width:768px) 40vw, 85vw'}
   width={sizes[0]} height={sizes[0]} loading={eager?'eager':'lazy'} decoding="async" draggable={false}
   alt={`${t('Художественная визуализация GPU')} · ${info.chip}`}/>;

@@ -1,3 +1,4 @@
+import {ProtectedArt} from './ProtectedArt';
 import {useLanguage,intlLocale} from './i18n';
 import {useCallback,useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {api,haptic,type Account} from './api';
@@ -16,7 +17,7 @@ const categories=[['ALL','Все'],['CONSUMER','Alpha'],['ENTERPRISE','Beta / PO
 const money=(value:string|null,locale:string,decimals=0)=>value===null?'—':exactMoney(value,locale);
 const micros=(value:string)=>{const [whole,fraction='']=value.split('.');return BigInt(whole)*1000000n+BigInt(fraction.padEnd(6,'0').slice(0,6))};
 
-function Art({node,detail=false}:{node:Node;detail?:boolean}){const {t}=useLanguage();const prefix=detail?'detail':'card',sizes=detail?[360,720,1080]:[160,320,480];return <img className="market-art" src={`${node.image}/${prefix}-${sizes[1]}.webp`} srcSet={sizes.map(s=>`${node.image}/${prefix}-${s}.webp ${s}w`).join(', ')} sizes={detail?'(max-width:600px) 70vw,220px':'(max-width:767px) 64px,72px'} width={sizes[1]} height={sizes[1]} loading={detail?'eager':'lazy'} draggable={false} alt={`${t("Визуализация категории")} ${node.name}`}/>}
+function Art({node,detail=false}:{node:Node;detail?:boolean}){const {t}=useLanguage();const prefix=detail?'detail':'card',sizes=detail?[360,720,1080]:[160,320,480];return <ProtectedArt className="market-art" src={`${node.image}/${prefix}-${sizes[1]}.webp`} srcSet={sizes.map(s=>`${node.image}/${prefix}-${s}.webp ${s}w`).join(', ')} sizes={detail?'(max-width:600px) 70vw,220px':'(max-width:767px) 64px,72px'} width={sizes[1]} height={sizes[1]} loading={detail?'eager':'lazy'} draggable={false} alt={`${t("Визуализация категории")} ${node.name}`}/>}
 
 export default function Market({authenticated,account,selectedId,onLogin,onSelected,onNotice,onError,focusNodeId,reviewRequest,onPurchased}:{authenticated:boolean;account:Account|null;selectedId?:string|null;onLogin:()=>void;onSelected:()=>Promise<void>;onNotice:(s:string)=>void;onError:(s:string)=>void;focusNodeId?:string|null;reviewRequest?:number;onPurchased:()=>void}){
  const {t,language}=useLanguage();const locale=intlLocale(language);

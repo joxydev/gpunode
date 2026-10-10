@@ -1,3 +1,4 @@
+import {installMediaGuard} from './media-guard';
 import './design-tokens.css';
 import './style.css';
 import './ui.css';
@@ -12,4 +13,5 @@ import {createRoot} from 'react-dom/client';
 import {TonConnectUIProvider} from '@tonconnect/ui-react';
 import {LanguageProvider} from './i18n';
 import App from './App';
+installMediaGuard(document);
 createRoot(document.getElementById('root')!).render(<React.StrictMode><LanguageProvider><TonConnectUIProvider manifestUrl={location.origin+'/tonconnect-manifest.json'}><App/></TonConnectUIProvider></LanguageProvider></React.StrictMode>);

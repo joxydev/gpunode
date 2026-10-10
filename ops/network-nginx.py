@@ -2,7 +2,7 @@
 """Add explicit retired-document responses inside the existing app server only."""
 import pathlib,re,sys,json,os
 backup=pathlib.Path(sys.argv[1]);root='/srv/apps/gpunode/current/frontend/dist'
-old=['public-offer-aethermind.pdf','public-offer-aethermind-2026-09-21.pdf','public-offer-aethermind-2026-09-30-trc-bep.pdf','public-offer-aethermind-ton-2026-10-07.pdf']
+old=['public-offer-aethermind.pdf','public-offer-aethermind-2026-09-21.pdf','public-offer-aethermind-2026-09-30-trc-bep.pdf','public-offer-aethermind-ton-2026-10-07.pdf','public-offer-aethermind-network-2026-10-10.pdf']
 block='\n    # BEGIN AETHERMIND NETWORK DOCUMENTS\n'+''.join('    location = /documents/'+name+' { return 410; }\n' for name in old)+'    location ^~ /contracts/ { return 404; }\n    # END AETHERMIND NETWORK DOCUMENTS\n'
 seen=set();changed=[]
 for entry in sorted((pathlib.Path(sys.argv[2]) if len(sys.argv)>2 else pathlib.Path('/etc/nginx/sites-enabled')).glob('*')):

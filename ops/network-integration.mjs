@@ -14,7 +14,7 @@ import * as network from '../backend/dist/network.js';
 import {DAY} from '../backend/dist/network-rules.js';
 import {OFFER_VERSION,OFFER_DOCUMENT_SHA256} from '../backend/dist/offer.js';
 if(process.env.CI_INTEGRATION!=='1'||new URL(process.env.DATABASE_URL).pathname!=='/aethermind_ci'||process.env.FINANCIAL_PUBLIC_ACCESS!=='false')throw Error('Network CI requires an isolated private database');
-let db=createDb(process.env.DATABASE_URL,4);const port=process.env.CI_PORT||'3198',base=`http://127.0.0.1:${port}/api`,pub=new Date(process.env.NETWORK_PUBLISHED_AT),anchor=new Date(+pub+7*DAY);
+let db=createDb(process.env.DATABASE_URL,4);const port=process.env.CI_PORT||'3198',base=`http://127.0.0.1:${port}/api`,pub=new Date(process.env.NETWORK_PUBLISHED_AT),anchor=new Date(+pub);
 const child=spawn(process.execPath,['backend/dist/main.js'],{env:{...process.env,PORT:port},stdio:['ignore','inherit','inherit']});
 const sql=(text,...args)=>db.$queryRawUnsafe(text,...args);
 async function call(path,token,body){const r=await fetch(base+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});const type=r.headers.get('content-type')||'';return {status:r.status,data:type.includes('json')?await r.json():await r.arrayBuffer()}}
@@ -28,7 +28,17 @@ const decisions={primary:'EACH_CONTRACT',team:'ACTIVE',retention:'ACTIVE',firstL
 async function reset(){await db.$executeRawUnsafe('TRUNCATE "User",network_policy,network_backfill,network_carry,network_review,network_period CASCADE')}
 try{
  for(let i=0;;i++){try{if((await call('/health')).status===200)break}catch{}assert.ok(i<60,'API starts');await new Promise(r=>setTimeout(r,150))}
- await reset();const owner=await login(11111),user=await login(910005),other=await login(22222);assert.equal((await call('/v1/admin/network',user)).status,403);assert.equal((await call('/v1/network/partners')).status,401);await acceptance(user);await credit('910005',2000);
+ await reset();const owner=await login(11111),user=await login(910005),other=await login(22222);assert.equal((await call('/v1/admin/network',user)).status,403);assert.equal((await call('/v1/network/partners')).status,401);const previousVersion='88-2026-AI-NETWORK-2026-10-10',previousHash='acd5ee451e7b2d609f797c81520e2b87c87d96760f94a377401db54301a93792';
+ await db.offerAcceptance.create({data:{userId:'910005',version:previousVersion,documentSha256:previousHash,clientHash:'c'.repeat(64)}});
+ const previousAcceptance=await db.offerAcceptance.findUniqueOrThrow({where:{userId_version:{userId:'910005',version:previousVersion}}});
+ const needsOffer=(await call('/me',user)).data.offer;assert.equal(needsOffer.accepted,false);assert.equal(needsOffer.hasPriorAcceptance,true);assert.equal(needsOffer.acceptedAt,null);
+ assert.equal((await call('/offer/accept',user,{version:previousVersion,documentSha256:previousHash,readConfirmed:true})).status,400);
+ assert.equal((await call('/offer/accept',user,{version:OFFER_VERSION,documentSha256:OFFER_DOCUMENT_SHA256,readConfirmed:false})).status,400);
+ const accepted=await call('/offer/accept',user,{version:OFFER_VERSION,documentSha256:OFFER_DOCUMENT_SHA256,readConfirmed:true});assert.equal(accepted.status,201);
+ const repeated=await call('/offer/accept',user,{version:OFFER_VERSION,documentSha256:OFFER_DOCUMENT_SHA256,readConfirmed:true});assert.equal(repeated.data.acceptedAt,accepted.data.acceptedAt);
+ assert.deepEqual(await db.offerAcceptance.findUniqueOrThrow({where:{userId_version:{userId:'910005',version:previousVersion}}}),previousAcceptance);
+ const reg=(await call('/v1/network/regulation')).data;assert.equal(reg.effectiveAt,reg.publishedAt);assert.equal(reg.version,OFFER_VERSION);
+ await acceptance(user);await credit('910005',2000);
  for(const id of ['NODE_4090','NODE_A100','NODE_H100'])await db.gpuCatalog.update({where:{id},data:{supplyKnown:true,totalSupply:100,availableSupply:100,maxPerUser:1,contractReference:{NODE_4090:'REF-ALPHA-2026-01',NODE_A100:'REF-BETA-2026-02',NODE_H100:'REF-ENT-2026-03'}[id]}});
  const buy=async(nodeId,compoundEnabled=false,idempotencyKey=randomUUID())=>call('/v1/market/buy',user,{nodeId,compoundEnabled,idempotencyKey});
  const alphaKey=randomUUID(),a=await buy('NODE_4090',false,alphaKey);assert.equal(a.status,201,JSON.stringify(a.data));
@@ -40,7 +50,10 @@ try{
  assert.equal((await buy('NODE_4090',false,alphaKey)).status,201);
  assert.equal(await balance('910005'),450000000n,'three independent debits');
  assert.equal((await call(`/v1/market/leases/${a.data.id}/contract`,other)).status,404);assert.equal((await call(`/v1/market/leases/${a.data.id}/contract`,user)).status,200);
- const original=await db.userLease.findUniqueOrThrow({where:{id:a.data.id}});await settleLease(db,a.data.id,new Date(+original.activatedAt+30*DAY));assert.equal((await buy('NODE_4090')).status,201,'completed tariff can be reused');
+ const original=await db.userLease.findUniqueOrThrow({where:{id:a.data.id}});
+ const archivedLease=await fixtureLease('22222',50,new Date(+pub-100*DAY),{status:'COMPLETED',completedAt:new Date(+pub-DAY),offerVersion:previousVersion,offerDocumentSha256:previousHash});
+ const archivedDoc=await call(`/v1/market/leases/${archivedLease.id}/contract`,other);assert.equal(archivedDoc.status,200);assert.equal(createHash('sha256').update(Buffer.from(archivedDoc.data)).digest('hex'),previousHash);
+await settleLease(db,a.data.id,new Date(+original.activatedAt+30*DAY));assert.equal((await buy('NODE_4090')).status,201,'completed tariff can be reused');
  await call(`/v1/admin/leases/${b.data.id}/reject`,owner,{reason:'CI rejection for race scenarios'});await call(`/v1/admin/leases/${c.data.id}/reject`,owner,{reason:'CI rejection for race scenarios'});
  const same=await Promise.all([buy('NODE_A100'),buy('NODE_A100')]);assert.deepEqual(same.map(v=>v.status).sort(),[201,409]);
  await call(`/v1/admin/leases/${same.find(v=>v.status===201).data.id}/reject`,owner,{reason:'CI race cleanup'});
@@ -65,7 +78,10 @@ try{
  const at=new Date(+pub+1000);for(const id of ['L3','L2','L1'])await fixtureLease(id,50,at);for(const id of ['Q3','Q2','Q1'])await fixtureLease(id,3000,at);
  const d=await fixtureLease('D',50,new Date(+at+1000));
  await network.runNetwork(db,new Date(+at+1000));assert.equal((await sql("SELECT amount_micros FROM network_reward WHERE source_id=$1 AND recipient='L1' AND kind='ACT'",'ACT:'+d.id))[0].amount_micros,3500000n);assert.equal((await sql("SELECT count(*) n FROM network_reward WHERE source_id=$1 AND line>1",'ACT:'+d.id))[0].n,0n,'unknown qualification only holds dependent lines');
- await network.approvePolicy(db,'11111',{decisions,reason:'CI explicit five policy decisions'});await network.runNetwork(db,new Date(+at+1000));
+ await network.approvePolicy(db,'11111',{decisions,reason:'CI explicit five policy decisions'});
+ const oldPublication=process.env.NETWORK_PUBLISHED_AT;process.env.NETWORK_PROGRAM_STARTED_AT=oldPublication;process.env.NETWORK_PUBLISHED_AT=new Date(+pub+60000).toISOString();
+ try{assert.equal(+network.effective(),+pub+60000);assert.equal(+network.programStarted(),+pub);await network.runNetwork(db,new Date(+at+1000));}finally{process.env.NETWORK_PUBLISHED_AT=oldPublication;delete process.env.NETWORK_PROGRAM_STARTED_AT}
+
  for(const [id,amount] of [['L1',3500000n],['L2',1500000n],['L3',500000n]])assert.equal((await sql('SELECT amount_micros FROM network_reward WHERE source_id=$1 AND recipient=$2 AND kind=\'ACT\'','ACT:'+d.id,id))[0].amount_micros,amount);
  await db.leaseAccrual.create({data:{leaseId:d.id,dayIndex:1,mode:'BASE',openingPrincipalMicros:50000000n,yieldMicros:750000n,closingPrincipalMicros:50000000n,rateBps:150,compoundBlock:0}});
  await network.runNetwork(db,new Date(+at+DAY+1000));for(const [id,amount] of [['L1',75000n],['L2',37500n],['L3',15000n]])assert.equal((await sql('SELECT amount_micros FROM network_reward WHERE recipient=$1 AND kind=\'DAILY\'',id))[0].amount_micros,amount);
