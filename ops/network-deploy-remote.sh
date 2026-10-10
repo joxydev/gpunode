@@ -43,7 +43,7 @@ available=$(df -Pk /srv | awk 'NR==2 {print $4}')
 ((available>1800000)) || fail 'Нужно минимум 1.8 ГБ свободного места.'
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 release="/srv/releases/gpunode/$stamp-$sha"
-backup="/srv/backups/gpunode/network-103-$stamp"
+backup="/srv/backups/gpunode/network-105-$stamp"
 install -d -m 0700 "$backup"
 printf '%s\n' "$previous" > "$backup/previous-release.txt"
 printf '%s\n' "$sha" > "$backup/requested-commit.txt"
@@ -187,8 +187,8 @@ PY_PRIVATE_ARCHIVE
 grep -Fq "OFFER_VERSION='88-2026-AI-NETWORK-2026-10-10'" "$release/backend/src/offer.ts" || fail 'Неверная версия.'
 [[ -f $release/frontend/src/ProductTour.tsx && -f $release/frontend/src/OwnerCredit.tsx && -f $release/backend/src/admin-credit.ts && -f $release/ops/admin-credit-integration.mjs && -f $release/backend/prisma/migrations/20261008000100_admin_balance_credit/migration.sql ]] || fail 'В архиве нет нового пополнения владельцем.'
 grep -Fq 'aethermind-tour-v2' "$release/frontend/src/ProductTour.tsx" || fail 'В архиве старая демонстрация.'
-[[ -f $release/ops/public-runtime.py && -f $release/ops/public-runtime-check.mjs && -f $release/ops/public-runtime-flags.json ]] || fail 'В архиве нет исправления настроек служб. Выполните скрипт 102.'
-if [[ ! -f $release/ops/epoch-integration.mjs ]] || ! grep -Fq 'let last:string|undefined' "$release/backend/src/epoch-settle.ts"; then fail 'В архиве старый Epoch worker. Выполните скрипт 102.'; fi
+[[ -f $release/ops/public-runtime.py && -f $release/ops/public-runtime-check.mjs && -f $release/ops/public-runtime-flags.json ]] || fail 'В архиве нет исправления настроек служб. Выполните скрипт 104.'
+if [[ ! -f $release/ops/epoch-integration.mjs ]] || ! grep -Fq 'let last:string|undefined' "$release/backend/src/epoch-settle.ts"; then fail 'В архиве старый Epoch worker. Выполните скрипт 104.'; fi
 [[ -f $release/frontend/src/design-tokens.css && -f $release/frontend/src/UI.tsx && -f $release/frontend/src/ui.css && -f $release/frontend/src/viewport.ts && -f $release/frontend/src/redesign-translations.ts ]] || fail 'В архиве нет полного редизайна.'
 grep -Fq -- '--color-primary: #26e6ff;' "$release/frontend/src/design-tokens.css" || fail 'В архиве нет общей палитры.'
 grep -Fq 'className="app-nav"' "$release/frontend/src/App.tsx" || fail 'В архиве нет новой навигации.'
@@ -227,6 +227,14 @@ phase 'проверка текущих настроек процессов бе�
 python3 "$release/ops/public-runtime.py" inspect
 phase 'миграционный preflight без изменения финансов'
 python3 "$release/ops/run-runtime.py" "$release" "$envfile" -- node ops/network-preflight.mjs "$backup/preflight-before-stop.json"
+# The former catalogue uses limits 5/3/2. Only the limit migration may change them.
+# Check all other terms while the API and watcher are still running.
+catalog_snapshot(){
+  runuser -u postgres -- psql -v ON_ERROR_STOP=1 -At -F '|' aethermind_v1 -c "SELECT c.id,c.price_usdt,c.contract_days,c.daily_yield_percent,c.compound_boost_percent,coalesce(c.contract_reference,''),c.is_active,c.is_experimental,c.supply_known,c.total_supply,c.available_supply,c.max_per_user,(SELECT count(*) FROM user_leases l WHERE l.node_id=c.id AND l.status IN ('PROVISIONING','ACTIVE','OVERCLOCKED','EXPIRED')) FROM gpu_catalog c WHERE c.id IN ('NODE_4090','NODE_A100','NODE_H100') ORDER BY c.tier_level" > "$1"
+}
+phase 'проверка каталога до остановки служб'
+catalog_snapshot "$backup/catalog-preflight.txt"
+python3 "$release/ops/network-catalog-check.py" "$backup/catalog-preflight.txt" --allow-legacy-limits
 phase 'остановка обработчиков и финальный бэкап'
 timer_touched=1; services_stopped=1
 for unit in gpunode-epoch-settle.timer gpunode-epoch-settle.service gpunode-ambassador.timer gpunode-ambassador.service; do
@@ -236,30 +244,24 @@ systemctl stop gpunode.service gpunode-ton-watcher.service
 runuser -u postgres -- pg_dump -Fc aethermind_v1 > "$backup/database-quiesced.dump"
 pg_restore --list "$backup/database-quiesced.dump" >/dev/null
 python3 "$release/ops/run-runtime.py" "$release" "$envfile" -- node ops/network-preflight.mjs "$backup/preflight-final.json"
+catalog_snapshot "$backup/catalog-before.txt"
+python3 "$release/ops/network-catalog-check.py" "$backup/catalog-before.txt" --allow-legacy-limits
 phase 'добавочные миграции рабочей базы'
 python3 "$release/ops/run-runtime.py" "$release" "$envfile" -- npm run db:migrate
 migrated=1
 # The offer publishes maximum category sizes, not current free inventory.
 phase 'проверка каталога с сохранением фактических остатков'
 # GPU Live and Compound use confirmed existing stock; never overwrite inventory.
-runuser -u postgres -- psql -At -F '|' aethermind_v1 -c "SELECT c.id,c.price_usdt,c.contract_days,c.daily_yield_percent,c.compound_boost_percent,coalesce(c.contract_reference,''),c.is_active,c.is_experimental,c.supply_known,c.total_supply,c.available_supply,c.max_per_user,(SELECT count(*) FROM user_leases l WHERE l.node_id=c.id AND l.status IN ('PROVISIONING','ACTIVE','OVERCLOCKED','EXPIRED')) FROM gpu_catalog c WHERE c.id IN ('NODE_4090','NODE_A100','NODE_H100') ORDER BY c.tier_level" > "$backup/catalog-before.txt"
-python3 - "$backup/catalog-before.txt" <<'PY_CATALOG'
+catalog_snapshot "$backup/catalog-after.txt"
+python3 "$release/ops/network-catalog-check.py" "$backup/catalog-after.txt"
+python3 - "$backup/catalog-before.txt" "$backup/catalog-after.txt" <<'PY_CATALOG_PRESERVATION'
 import pathlib,sys
-expected={'NODE_4090':('Node Alpha','50.00',30,'1.50','1.80','REF-ALPHA-2026-01',2500),
-          'NODE_A100':('Cluster Beta','300.00',60,'2.50','3.00','REF-BETA-2026-02',1000),
-          'NODE_H100':('Enterprise POD','1200.00',90,'3.50','4.20','REF-ENT-2026-03',250)}
-rows=[line.split('|') for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
-if len(rows)!=3 or {row[0] for row in rows}!=set(expected):raise SystemExit('Не найдены три действующие категории.')
-for row in rows:
-    if len(row)!=13:raise SystemExit('Неожиданные поля каталога.')
-    ident,price,days,base,compound,ref,active,experimental,known,total,free,limit,reserved=row
-    label,exp_price,exp_days,exp_base,exp_compound,exp_ref,cap=expected[ident]
-    if (price,int(days),base,compound)!=(exp_price,exp_days,exp_base,exp_compound) or active!='t' or experimental!='f' or int(limit)!=1:raise SystemExit(f'{label}: параметры действующего тарифа не совпали.')
-    if ref!=exp_ref:raise SystemExit(f'{label}: contract_reference отличается от опубликованного.')
-    total,free,reserved=int(total),int(free),int(reserved)
-    if known=='t' and (total<0 or total>cap or free<0 or free>total-reserved):raise SystemExit(f'{label}: некорректный остаток или резерв.')
-    print(f'{label}: сохранено total={total}, free={free}, reserved={reserved}, confirmed={known}')
-PY_CATALOG
+def snapshot(path):
+    return {row[0]:row[:11]+row[12:] for row in (line.split('|') for line in pathlib.Path(path).read_text().splitlines())}
+if snapshot(sys.argv[1]) != snapshot(sys.argv[2]):
+    raise SystemExit('Миграции изменили параметры, фактические остатки или резервы каталога; переключение остановлено.')
+print('Каталог: изменён только max_per_user; ставки, сроки и фактические остатки сохранены.')
+PY_CATALOG_PRESERVATION
 
 phase 'настройка публичного доступа'
 # Mark rollback state before the first configuration write.
@@ -417,6 +419,9 @@ runuser -u postgres -- psql -Atqc "SELECT count(*)=3 FROM pg_indexes WHERE index
 # Migration names and exact SQL checksums are checked by Prisma deploy; inspect schema independently.
 runuser -u postgres -- psql -Atqc "SELECT to_regclass('network_reward') IS NOT NULL AND to_regclass('network_paths') IS NOT NULL AND NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='user_wallets'::regclass AND conname='user_wallets_address_key')" aethermind_v1 > "$backup/network-schema.txt"
 [[ $(cat "$backup/network-schema.txt") == t ]] || fail 'Схема Ambassador/общих кошельков не совпала.'
+runuser -u postgres -- psql -v ON_ERROR_STOP=1 -Atqc "SELECT count(*)=3 AND bool_and(max_per_user=1) FROM gpu_catalog WHERE id IN ('NODE_4090','NODE_A100','NODE_H100')" aethermind_v1 > "$backup/catalog-limit-check.txt"
+[[ $(cat "$backup/catalog-limit-check.txt") == t ]] || fail 'Лимит одного незавершённого договора на тариф не установлен.'
+
 systemctl enable --now gpunode-ambassador.timer
 systemctl is-active --quiet gpunode-ambassador.timer || fail 'Ambassador timer не запущен.'
 phase 'включение проверенного Epoch timer'

@@ -3,6 +3,7 @@
 import datetime
 import hashlib
 import json
+import importlib.util
 import pathlib
 import subprocess
 import sys
@@ -10,6 +11,9 @@ import tempfile
 import unittest
 
 OPS = pathlib.Path(__file__).resolve().parent
+catalog_spec = importlib.util.spec_from_file_location('network_catalog', OPS / 'network-catalog-check.py')
+catalog_check = importlib.util.module_from_spec(catalog_spec)
+catalog_spec.loader.exec_module(catalog_check)
 
 
 def run(name, *args):
@@ -17,6 +21,57 @@ def run(name, *args):
 
 
 class DeployFixtures(unittest.TestCase):
+    def catalog_fixture(self, root, limits=(1, 1, 1)):
+        rows = []
+        for (ident, values), limit in zip(catalog_check.EXPECTED.items(), limits):
+            _, price, days, base, compound, reference, _ = values
+            rows.append([ident, price, str(days), base, compound, reference,
+                         't', 'f', 't', '95', '83', str(limit), '12'])
+        file = root / 'catalog.txt'
+        file.write_text('\n'.join('|'.join(row) for row in rows) + '\n')
+        return file, rows
+
+    def test_catalog_legacy_limits_are_allowed_only_before_migration(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = pathlib.Path(folder)
+            file, _ = self.catalog_fixture(root, (5, 3, 2))
+            original = file.read_bytes()
+            with self.assertRaisesRegex(ValueError, "Node Alpha: max_per_user='5', ожидается 1"):
+                catalog_check.validate(file)
+            messages = catalog_check.validate(file, allow_legacy_limits=True)
+            self.assertEqual(sum('прежний max_per_user=' in line for line in messages), 3)
+            self.assertEqual(file.read_bytes(), original)
+            file, _ = self.catalog_fixture(root)
+            self.assertEqual(len(catalog_check.validate(file)), 3)
+
+    def test_catalog_compares_exact_numbers_and_reports_every_mismatch(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = pathlib.Path(folder)
+            file, rows = self.catalog_fixture(root)
+            rows[0][1], rows[0][3], rows[0][4] = '50', '1.5000', '1.8'
+            file.write_text('\n'.join('|'.join(row) for row in rows))
+            self.assertEqual(len(catalog_check.validate(file)), 3)
+            rows[0][1], rows[1][3], rows[2][5] = '50.01', '2.51', 'unapproved'
+            file.write_text('\n'.join('|'.join(row) for row in rows))
+            result = run('network-catalog-check.py', file, '--allow-legacy-limits')
+            self.assertNotEqual(result.returncode, 0)
+            for expected in ("price_usdt='50.01'", "daily_yield_percent='2.51'", "contract_reference='unapproved'"):
+                self.assertIn(expected, result.stderr)
+
+    def test_catalog_preserves_and_checks_inventory_even_with_legacy_limits(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = pathlib.Path(folder)
+            file, rows = self.catalog_fixture(root, (5, 3, 2))
+            for field, invalid in ((10, '84'), (9, '-1'), (10, '-1'), (12, '-1'), (11, '0'), (8, 'other'), (1, 'NaN'), (4, 'Infinity')):
+                with self.subTest(field=field, invalid=invalid):
+                    original = rows[0][field]
+                    rows[0][field] = invalid
+                    file.write_text('\n'.join('|'.join(row) for row in rows))
+                    before = file.read_bytes()
+                    self.assertNotEqual(run('network-catalog-check.py', file, '--allow-legacy-limits').returncode, 0)
+                    self.assertEqual(file.read_bytes(), before)
+                    rows[0][field] = original
+
     def test_publication_is_current_immutable_and_seven_utc_days(self):
         with tempfile.TemporaryDirectory() as folder:
             root = pathlib.Path(folder)
