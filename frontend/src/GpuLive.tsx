@@ -1,4 +1,5 @@
 import {ProtectedArt} from './ProtectedArt';
+import {LightFrame} from './LightFrame';
 import {memo,useCallback,useEffect,useRef,useState,useSyncExternalStore,type RefObject} from 'react';
 import type {Lease} from './api';
 import {useLanguage} from './i18n';
@@ -8,6 +9,7 @@ import {liveAmounts,microDecimal,serverClock,timerText,workloadFrame} from './li
 import {useAppActive} from './motion';
 import './gpu-live.css';
 
+const lightEnabled=(node:Lease)=>Boolean(node.status==='ACTIVE'&&node.liveAccrual?.state==='ACTIVE'&&node.liveAccrual.validSnapshot);
 const hardware:Record<string,{path:string;chip:string;purpose:string}>={
  NODE_4090:{path:'/assets/market/4090',chip:'RTX 4090',purpose:'Нейрорендеринг и компьютерное зрение'},
  NODE_A100:{path:'/assets/market/a100',chip:'A100',purpose:'Языковые модели и обработка батчей'},
@@ -19,11 +21,11 @@ export function GpuArt({node,compact=false,eager=false}:{node:Lease;compact?:boo
  const prefix=compact?'card':'detail',sizes=compact?[160,320,480]:[360,720,1080];
  return <ProtectedArt className={compact?'gpu-thumbnail':'gpu-art'} src={`${info.path}/${prefix}-${sizes[0]}.webp`}
   srcSet={sizes.map(size=>`${info.path}/${prefix}-${size}.webp ${size}w`).join(', ')} sizes={compact?'80px':'(min-width:1024px) 360px, (min-width:768px) 40vw, 85vw'}
-  width={sizes[0]} height={sizes[0]} loading={eager?'eager':'lazy'} decoding="async" draggable={false}
+  width={sizes[0]} height={sizes[0]} loading={eager?'eager':'lazy'} decoding="async" draggable={false} lit={lightEnabled(node)}
   alt={`${t('Художественная визуализация GPU')} · ${info.chip}`}/>;
 }
 function useVisible(ref:RefObject<HTMLElement>){
- const [visible,setVisible]=useState(true);useEffect(()=>{const element=ref.current;if(!element)return;
+ const [visible,setVisible]=useState(true);useEffect(()=>{const element=ref.current;if(!element||!('IntersectionObserver' in window))return;
   const observer=new IntersectionObserver(([entry])=>setVisible(entry.isIntersecting),{rootMargin:'24px'});observer.observe(element);return()=>observer.disconnect();},[ref]);return visible;
 }
 const idleSubscribe=()=>()=>{};
@@ -65,13 +67,13 @@ function Workload({node}:{node:Lease}){
  </section>;
 }
 export function GpuSummary({node,onOpen,onRefresh,eager=false}:{node:Lease;onOpen:()=>void;onRefresh:()=>Promise<void>;eager?:boolean}){
- const {t}=useLanguage();return <button className="panel gpu-summary" id={'gpu-row-'+node.id} onClick={onOpen}>
+ const {t}=useLanguage();return <button className="panel gpu-summary fx-card" data-fx-enabled={lightEnabled(node)} id={'gpu-row-'+node.id} onClick={onOpen}><LightFrame/>
   <GpuArt node={node} compact eager={eager}/><span className="gpu-summary-title"><b>{node.node?.name||node.nodeId}</b><small>{node.mode==='COMPOUND'?'Compound Boost':node.mode||'—'}{node.liveAccrual?.periodIndex?` · ${t('День')} ${node.liveAccrual.periodIndex} / ${node.contractDays}`:''}</small></span>
   <StatusPill status={node.status} label={t(statusLabels[node.status]||node.status)}/><LiveStats node={node} compact onRefresh={onRefresh}/>
  </button>;
 }
 export function GpuDetail({node,onRefresh}:{node:Lease;onRefresh:()=>Promise<void>}){
- const {t}=useLanguage(),info=hardware[node.nodeId];return <article className="panel gpu-detail">
+ const {t}=useLanguage(),info=hardware[node.nodeId];return <article className="panel gpu-detail fx-card" data-fx-enabled={lightEnabled(node)}><LightFrame/>
   <div className="gpu-identity"><div><span className="eyebrow">{info?.chip||'GPU'} / {node.mode==='COMPOUND'?'Compound Boost':node.mode||'—'}</span><p>{info?t(info.purpose):t('Назначение оборудования уточняется оператором.')}</p></div><StatusPill status={node.status} label={t(statusLabels[node.status]||node.status)}/></div>
   <div className="gpu-detail-columns"><div className="gpu-visual"><GpuArt node={node} eager/></div><div className="gpu-financial"><LiveStats node={node} onRefresh={onRefresh}/></div><Workload node={node}/><dl className="gpu-capital"><div><dt>{t('Первоначальный депозит')}</dt><dd>{node.principal?<Money value={node.principal}/>: '—'}</dd></div>{node.mode==='COMPOUND'&&<><div><dt>{t('Капитал с реинвестированием')}</dt><dd>{node.compoundCapital?<Money value={node.compoundCapital}/>: '—'}</dd></div><div><dt>{t('Накопленная Compound-прибыль')}</dt><dd>{node.compoundProfit?<Money value={node.compoundProfit}/>: '—'}</dd></div></>}<div><dt>{t('Ставка')}</dt><dd>{(node.mode==='COMPOUND'?node.compoundDailyRateBps:node.baseDailyRateBps)?String((node.mode==='COMPOUND'?node.compoundDailyRateBps:node.baseDailyRateBps)!/100)+'% / '+t('сутки'):'—'}</dd></div><div><dt>{t('Срок работы')}</dt><dd>{node.contractDays||'—'} {t('дней')}</dd></div></dl></div>
  </article>;

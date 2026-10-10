@@ -43,7 +43,7 @@ available=$(df -Pk /srv | awk 'NR==2 {print $4}')
 ((available>1800000)) || fail 'Нужно минимум 1.8 ГБ свободного места.'
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 release="/srv/releases/gpunode/$stamp-$sha"
-backup="/srv/backups/gpunode/bot-presentation-109-$stamp"
+backup="/srv/backups/gpunode/gpu-fx-111-$stamp"
 install -d -m 0700 "$backup"
 printf '%s\n' "$previous" > "$backup/previous-release.txt"
 printf '%s\n' "$sha" > "$backup/requested-commit.txt"
@@ -187,8 +187,8 @@ PY_PRIVATE_ARCHIVE
 grep -Fq "OFFER_VERSION='88-2026-AI-NETWORK-2026-10-10-R2'" "$release/backend/src/offer.ts" || fail 'Неверная версия.'
 [[ -f $release/frontend/src/ProductTour.tsx && -f $release/frontend/src/OwnerCredit.tsx && -f $release/backend/src/admin-credit.ts && -f $release/ops/admin-credit-integration.mjs && -f $release/backend/prisma/migrations/20261008000100_admin_balance_credit/migration.sql ]] || fail 'В архиве нет нового пополнения владельцем.'
 grep -Fq 'aethermind-tour-v2' "$release/frontend/src/ProductTour.tsx" || fail 'В архиве старая демонстрация.'
-[[ -f $release/ops/public-runtime.py && -f $release/ops/public-runtime-check.mjs && -f $release/ops/public-runtime-flags.json ]] || fail 'В архиве нет исправления настроек служб. Выполните скрипт 108.'
-if [[ ! -f $release/ops/epoch-integration.mjs ]] || ! grep -Fq 'let last:string|undefined' "$release/backend/src/epoch-settle.ts"; then fail 'В архиве старый Epoch worker. Выполните скрипт 108.'; fi
+[[ -f $release/ops/public-runtime.py && -f $release/ops/public-runtime-check.mjs && -f $release/ops/public-runtime-flags.json ]] || fail 'В архиве нет исправления настроек служб. Выполните скрипт 110.'
+if [[ ! -f $release/ops/epoch-integration.mjs ]] || ! grep -Fq 'let last:string|undefined' "$release/backend/src/epoch-settle.ts"; then fail 'В архиве старый Epoch worker. Выполните скрипт 110.'; fi
 [[ -f $release/frontend/src/design-tokens.css && -f $release/frontend/src/UI.tsx && -f $release/frontend/src/ui.css && -f $release/frontend/src/viewport.ts && -f $release/frontend/src/redesign-translations.ts ]] || fail 'В архиве нет полного редизайна.'
 grep -Fq -- '--color-primary: #26e6ff;' "$release/frontend/src/design-tokens.css" || fail 'В архиве нет общей палитры.'
 grep -Fq 'className="app-nav"' "$release/frontend/src/App.tsx" || fail 'В архиве нет новой навигации.'
@@ -201,8 +201,11 @@ flags=json.load(open(sys.argv[1]))
 assert flags.get('ENABLE_COMPOUND')=='true','Canonical Compound flag is missing'
 assert flags.get('FINANCIAL_PUBLIC_ACCESS')=='true','Public access is missing'
 PY_GPU_COMPOUND_FLAGS
-[[ -f $release/backend/src/bot-presentation.ts && -f $release/backend/src/telegram.ts && -f $release/ops/bot-config-test.py && -f $release/ops/bot-integration.mjs && -f $release/ops/bot-ci-transport.mjs ]] || fail 'В архиве нет полного обновления бота. Выполните скрипт 108.'
+[[ -f $release/backend/src/bot-presentation.ts && -f $release/backend/src/telegram.ts && -f $release/ops/bot-config-test.py && -f $release/ops/bot-integration.mjs && -f $release/ops/bot-ci-transport.mjs ]] || fail 'В архиве нет полного обновления бота. Выполните скрипт 110.'
 printf '%s  %s\n' 'fb0629877727117170f95ce25c4ea32eae7c2cfd249cd6f2c1eecd496ef2c9b6' "$release/frontend/public/assets/bot/welcome.jpg" | sha256sum -c --status || fail 'Приветственный баннер не совпал.'
+[[ -f $release/frontend/src/light-effects.ts && -f $release/frontend/src/light-effects.css && -f $release/frontend/src/LightFrame.tsx ]] || fail 'В архиве нет GPU-эффектов. Выполните скрипт 110.'
+grep -Fq '.protected-art[data-image-protected]{background-position:center;background-size:contain;background-repeat:no-repeat}' "$release/frontend/src/protected-art.css" || fail 'В архиве нет исправления GPU-изображений.'
+grep -Fq 'useLightEffects();' "$release/frontend/src/App.tsx" || fail 'Управление световыми эффектами не подключено.'
 phase 'установка зависимостей, тесты и сборка' 
 # shellcheck disable=SC2016
 runuser -u deploy -- env PATH="$PATH" NODE_OPTIONS=--max-old-space-size=384 bash -c '

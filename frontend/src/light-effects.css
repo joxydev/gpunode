@@ -1,0 +1,40 @@
+/* Gradients are painted once. Only small trail transforms and opacity animate. */
+.fx-card{position:relative;isolation:isolate}
+.fx-frame{position:absolute;inset:0;overflow:hidden;border-radius:inherit;pointer-events:none;border:1px solid #36deef48;box-shadow:inset 0 0 20px -16px #28e4f68c}
+.fx-frame i{position:absolute;display:block;overflow:hidden;pointer-events:none}
+.fx-top,.fx-bottom{left:16px;right:16px;height:2px}
+.fx-top{top:0}.fx-bottom{bottom:0;transform:rotate(180deg)}
+.fx-left,.fx-right{top:16px;bottom:16px;width:2px}
+.fx-right{right:0}.fx-left{left:0;transform:rotate(180deg)}
+.fx-frame i::after{content:"";position:absolute;inset:0;opacity:0}
+.fx-top::after,.fx-bottom::after{background:linear-gradient(90deg,transparent 5%,#775cff60 46%,#28e4f6 65%,#d1fcff 72%,transparent 83%);transform:translateX(-110%)}
+.fx-left::after,.fx-right::after{background:linear-gradient(180deg,transparent 5%,#775cff60 46%,#28e4f6 65%,#d1fcff 72%,transparent 83%);transform:translateY(-110%)}
+.fx-card[data-fx-enabled="false"] .fx-frame{border-color:#8393a312}
+.fx-art{position:relative;isolation:isolate;overflow:hidden}
+.fx-art::before,.fx-art::after{content:"";position:absolute;pointer-events:none}
+.fx-art::before{inset:0;background:linear-gradient(110deg,transparent 36%,#26e5ff05 43%,#68f6ff28 50%,#b98bff0b 57%,transparent 64%);transform:translateX(-115%);opacity:0}
+.fx-art::after{height:2px;bottom:10%;left:18%;right:18%;border-radius:2px;background:linear-gradient(90deg,transparent,#44eafa90,#b39aff75,transparent);opacity:.25}
+.primary{position:relative;isolation:isolate;overflow:hidden}
+.primary::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(110deg,transparent 38%,#fff0 43%,#fff7 50%,#fff0 57%,transparent 62%);transform:translateX(-115%);opacity:0}
+.app-nav button.active::after{content:"";position:absolute;left:28%;right:28%;bottom:3px;height:2px;border-radius:2px;background:linear-gradient(90deg,transparent,#49e7fa,transparent);opacity:.55;pointer-events:none}
+
+@media(prefers-reduced-motion:no-preference){
+ .fx-card[data-fx-run="running"] .fx-top::after{animation:fx-rail-x 12s linear infinite}
+ .fx-card[data-fx-run="running"] .fx-right::after{animation:fx-rail-y 12s linear -9s infinite}
+ .fx-card[data-fx-run="running"] .fx-bottom::after{animation:fx-rail-x 12s linear -6s infinite}
+ .fx-card[data-fx-run="running"] .fx-left::after{animation:fx-rail-y 12s linear -3s infinite}
+ .fx-art[data-fx-run="running"]::before{animation:fx-sweep 8s ease-in-out infinite}
+ .fx-art[data-fx-run="running"]::after{animation:fx-breathe 4s ease-in-out infinite}
+ .primary[data-fx-run="running"]:not(:disabled):not([aria-disabled="true"])::after{animation:fx-sweep 7s ease-in-out infinite}
+ .app-nav button.active[data-fx-run="running"]::after{animation:fx-breathe 4s ease-in-out infinite}
+ .stellar-scene[data-fx-run="running"] .stellar-dimmer{animation:fx-core-dim 4.4s ease-in-out infinite}
+ .stellar-scene[data-fx-run="running"] .stellar-light{animation:fx-core-light 4.4s ease-in-out infinite}
+ .stellar-scene[data-fx-run="running"] .stellar-flare{animation:fx-core-flare 4.4s ease-in-out infinite}
+}
+@keyframes fx-rail-x{0%{opacity:0;transform:translateX(-110%)}2%{opacity:.9}23%{opacity:.9}25%,100%{opacity:0;transform:translateX(110%)}}
+@keyframes fx-rail-y{0%{opacity:0;transform:translateY(-110%)}2%{opacity:.9}23%{opacity:.9}25%,100%{opacity:0;transform:translateY(110%)}}
+@keyframes fx-sweep{0%,64%{opacity:0;transform:translateX(-115%)}70%{opacity:.7}87%{opacity:.7}94%,100%{opacity:0;transform:translateX(115%)}}
+@keyframes fx-breathe{0%,100%{opacity:.25}50%{opacity:.85}}
+@keyframes fx-core-dim{0%,100%{opacity:.85}50%{opacity:.22}}
+@keyframes fx-core-light{0%,100%{opacity:.12}50%{opacity:.72}}
+@keyframes fx-core-flare{0%,100%{opacity:.06}50%{opacity:.45}}

@@ -4,6 +4,7 @@ import {ToastProvider,useToast} from './Toasts';
 import LanguagePicker from './LanguagePicker';
 import {lazy,Suspense,useCallback,useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {useAmbientMotion,useAppActive,useReducedMotion,useSurfaceMotion,exitSurface} from './motion';
+import {useLightEffects} from './light-effects';
 import CoreVisual from './CoreVisual';
 const OwnerPanel=lazy(()=>import('./OwnerPanel'));
 const SupportPanel=lazy(()=>import('./SupportPanel'));
@@ -35,6 +36,7 @@ export default function App(){return <ToastProvider><AppContent/></ToastProvider
 function AppContent(){
  const pushToast=useToast();
  useAmbientMotion();
+ useLightEffects();
  useViewport();
  const appActive=useAppActive();useEffect(()=>serverClock.setActive(appActive),[appActive]);
  const {t,language,chosen}=useLanguage();

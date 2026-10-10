@@ -1,4 +1,5 @@
 import {ProtectedArt} from './ProtectedArt';
+import {LightFrame} from './LightFrame';
 import {useLanguage,intlLocale} from './i18n';
 import {useCallback,useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {api,haptic,type Account} from './api';
@@ -17,7 +18,7 @@ const categories=[['ALL','Все'],['CONSUMER','Alpha'],['ENTERPRISE','Beta / PO
 const money=(value:string|null,locale:string,decimals=0)=>value===null?'—':exactMoney(value,locale);
 const micros=(value:string)=>{const [whole,fraction='']=value.split('.');return BigInt(whole)*1000000n+BigInt(fraction.padEnd(6,'0').slice(0,6))};
 
-function Art({node,detail=false}:{node:Node;detail?:boolean}){const {t}=useLanguage();const prefix=detail?'detail':'card',sizes=detail?[360,720,1080]:[160,320,480];return <ProtectedArt className="market-art" src={`${node.image}/${prefix}-${sizes[1]}.webp`} srcSet={sizes.map(s=>`${node.image}/${prefix}-${s}.webp ${s}w`).join(', ')} sizes={detail?'(max-width:600px) 70vw,220px':'(max-width:767px) 64px,72px'} width={sizes[1]} height={sizes[1]} loading={detail?'eager':'lazy'} draggable={false} alt={`${t("Визуализация категории")} ${node.name}`}/>}
+function Art({node,detail=false}:{node:Node;detail?:boolean}){const {t}=useLanguage();const prefix=detail?'detail':'card',sizes=detail?[360,720,1080]:[160,320,480];return <ProtectedArt className="market-art" src={`${node.image}/${prefix}-${sizes[1]}.webp`} srcSet={sizes.map(s=>`${node.image}/${prefix}-${s}.webp ${s}w`).join(', ')} sizes={detail?'(max-width:600px) 70vw,220px':'(max-width:767px) 64px,72px'} width={sizes[1]} height={sizes[1]} loading={detail?'eager':'lazy'} draggable={false} lit={!node.experimental&&node.availability==='AVAILABLE'} alt={`${t("Визуализация категории")} ${node.name}`}/>}
 
 export default function Market({authenticated,account,selectedId,onLogin,onSelected,onNotice,onError,focusNodeId,reviewRequest,onPurchased}:{authenticated:boolean;account:Account|null;selectedId?:string|null;onLogin:()=>void;onSelected:()=>Promise<void>;onNotice:(s:string)=>void;onError:(s:string)=>void;focusNodeId?:string|null;reviewRequest?:number;onPurchased:()=>void}){
  const {t,language}=useLanguage();const locale=intlLocale(language);
@@ -65,7 +66,7 @@ export default function Market({authenticated,account,selectedId,onLogin,onSelec
  <div className="market-toolbar"><span>{loading?t('Загрузка…'):`${nodes.length} ${t('категории')}`}</span><select aria-label={t('Сортировка')} value={sort} onChange={e=>setSort(e.target.value)}><option value="tier_asc">{t('По уровню')}</option><option value="price_asc">{t('Цена: сначала ниже')}</option><option value="price_desc">{t('Цена: сначала выше')}</option><option value="yield_desc">{t('Ставка: сначала выше')}</option></select></div>
  <p className="market-disclosure">{t('Выбор тарифа сохраняется без оплаты. Заказ списывает доступный баланс только после подтверждения.')}</p>
  {error&&<div className="market-problem" role="alert"><p>{error}</p><button className="secondary" onClick={()=>void reload()}>{t('Повторить')}</button></div>}
- <div className="market-grid" aria-busy={loading}>{loading?Array.from({length:3},(_,i)=><div className="market-skeleton" key={i}><div/><span/><span/></div>):nodes.map(node=>{const current=selectedId===node.id;return <article key={node.id} className={`market-card ${current?'chosen':''}`}>
+ <div className="market-grid" aria-busy={loading}>{loading?Array.from({length:3},(_,i)=><div className="market-skeleton" key={i}><div/><span/><span/></div>):nodes.map(node=>{const current=selectedId===node.id;return <article key={node.id} className={`market-card fx-card ${current?'chosen':''}`} data-fx-enabled={!node.experimental&&node.availability==='AVAILABLE'}><LightFrame/>
   <div className="market-card-heading"><button className="market-image-button" onClick={()=>open(node)} aria-label={`${t('Подробнее:')} ${node.name}`}><Art node={node}/></button><div><button className="market-title" onClick={()=>open(node)}><h2>{node.name}</h2><Icon name="chevron" size={18}/></button><StatusPill status={node.availability==='AVAILABLE'?'ACTIVE':node.availability} label={t(cardLabel(node))}/></div></div>
   <p className="market-hardware">{node.chip} · {money(String(node.tflops),locale)} TFLOPS · {t(node.precision)}</p>
   <div className="market-key"><div><small>{t('Депозит')}</small><strong>{money(node.priceUsdt,locale)} <em>USDT</em></strong></div><div><small>{t('Срок работы')}</small><strong>{node.contractDays} <em>{t('дней')}</em></strong></div></div>
