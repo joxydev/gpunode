@@ -92,6 +92,9 @@ try:
     run(['npm', 'run', 'db:migrate'])
     run(['node', '--check', 'ops/integration.mjs'])
     run(['node', 'ops/integration.mjs'])
+    run(['python3', 'ops/bot-config-test.py'])
+    run(['node', '--check', 'ops/bot-integration.mjs'])
+    run(['node', 'ops/bot-integration.mjs'])
     # Financial tests accept the exact bundled PDF on the disposable cluster.
     # No live production users, balances or service flags are touched.
     env.update({

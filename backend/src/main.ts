@@ -9,6 +9,8 @@ import {NestFactory} from '@nestjs/core';
 import {FastifyAdapter,NestFastifyApplication} from '@nestjs/platform-fastify';
 import {createDb} from './db-utc.js';
 import * as network from './network.js';
+import {botCommand,botLanguage,botWords,botReply,browserLoginText} from './bot-presentation.js';
+import {TelegramClient} from './telegram.js';
 import {telegramIdentity,signSession,sessionIdentity,microsToDecimal,validWebhook} from './security.js';
 import {catalog} from './catalog.js';
 import {Query as QueryParam, NotFoundException} from '@nestjs/common';
@@ -35,13 +37,6 @@ const db=createDb(DATABASE_URL,4);
 const deposits=new DepositsService(db);
 const gasless=new GaslessDeposits(db);
 const publicOrdersReady=()=>financialFlag('PURCHASES')&&financialFlag('EPOCH_ACTIVATION')&&financialFlag('ACCRUAL')&&process.env.FINANCIAL_PUBLIC_ACCESS==='true';
-type BotLanguage='ru'|'en'|'ro';
-function botLanguage(value?:string|null):BotLanguage{return value?.toLowerCase().startsWith('ro')?'ro':value?.toLowerCase().startsWith('en')?'en':'ru';}
-const botWords={
- ru:{approve:'Вход подтверждён. Вернитесь в браузер.',reject:'Вход отклонён.',stale:'Запрос уже обработан или истёк.',login:'Вход в AetherMind в браузере',code:'Код запроса:',check:'Сверьте код с открытой вкладкой. Подтверждайте только вход, который вы начали сами. После подтверждения вернитесь в ту же вкладку.',expired:'Запрос входа истёк или уже обработан. Начните вход заново в браузере.',confirm:'Подтвердить вход',deny:'Отклонить',start:'AetherMind — участие в коммерческом DePIN-кластере GPU. Примите оферту, выберите фиксированный тариф и следите за этапами в профиле.',terms:'Действующие категории: Node Alpha — 50 USDT, Cluster Beta — 300 USDT, Enterprise POD — 1 200 USDT. Quantum Array находится в разработке. Пополнение USDT доступно через динамические инвойсы TON; заявки на вывод рассматриваются оператором. Условия в приложении.',support:'Поддержка AetherMind: откройте приложение и нажмите значок наушников. Обращения и ответы сохраняются в вашем профиле.',open:'Открыть AetherMind'},
- en:{approve:'Sign-in confirmed. Return to your browser.',reject:'Sign-in rejected.',stale:'Request already processed or expired.',login:'AetherMind browser sign-in',code:'Request code:',check:'Compare the code with your browser tab. Only confirm sign-ins you started. Then return to the same tab.',expired:'Sign-in request expired or already processed. Start again in your browser.',confirm:'Confirm sign-in',deny:'Reject',start:'AetherMind — join the commercial DePIN GPU cluster. Accept the offer, select a fixed plan and track your progress in your profile.',terms:'Available plans: Node Alpha — 50 USDT, Cluster Beta — 300 USDT, Enterprise POD — 1,200 USDT. Quantum Array is in development. Deposits use dynamic TON USDT invoices; withdrawal requests are reviewed by an operator. See the app for details.',support:'AetherMind support: open the app and tap the support icon. Your messages and replies are saved in your profile.',open:'Open AetherMind'},
- ro:{approve:'Autentificarea a fost confirmată. Revino în browser.',reject:'Autentificarea a fost refuzată.',stale:'Cererea a fost deja procesată sau a expirat.',login:'Autentificare AetherMind în browser',code:'Codul cererii:',check:'Compară codul cu cel din fila de browser. Confirmă doar autentificările inițiate de tine, apoi revino în aceeași filă.',expired:'Cererea de autentificare a expirat sau a fost deja procesată. Începe din nou în browser.',confirm:'Confirmă autentificarea',deny:'Refuză',start:'AetherMind — participă la clusterul GPU DePIN comercial. Acceptă oferta, alege un plan fix și urmărește etapele în profil.',terms:'Planuri disponibile: Node Alpha — 50 USDT, Cluster Beta — 300 USDT, Enterprise POD — 1 200 USDT. Quantum Array este în dezvoltare. Depunerile folosesc facturi dinamice TON USDT; cererile de retragere sunt analizate de operator.',support:'Asistență AetherMind: deschide aplicația și apasă pictograma de asistență. Mesajele și răspunsurile sunt salvate în profilul tău.',open:'Deschide AetherMind'}
-} satisfies Record<BotLanguage,Record<string,string>>;
 function identity(auth?:string) {try{return sessionIdentity(auth,SESSION_SECRET!);}catch(e){throw new UnauthorizedException((e as Error).message);}}
 async function agreed(auth?:string){const id=identity(auth);const user=await db.user.findUnique({where:{id},select:{agreementVersion:true,agreementAcceptedAt:true}});if(user?.agreementVersion!==AGREEMENT_VERSION||!user.agreementAcceptedAt)throw new ForbiddenException({code:'AGREEMENT_REQUIRED',message:'Примите пользовательское соглашение, чтобы продолжить.',version:AGREEMENT_VERSION});return id;}
 async function legacyOfferAccepted(auth?:string){const id=await agreed(auth);const acceptance=await db.offerAcceptance.findUnique({where:{userId_version:{userId:id,version:OFFER_VERSION}}});if(acceptance?.documentSha256!==OFFER_DOCUMENT_SHA256)throw new ForbiddenException({code:'OFFER_REQUIRED',message:'Примите опубликованную публичную оферту.',version:OFFER_VERSION});return id;}
@@ -49,8 +44,9 @@ async function owner(auth?:string){const id=await agreed(auth);if(id!==OWNER_TEL
 function field(body:Record<string,unknown>,key:string,max:number,min=1) {const value=body?.[key];if(typeof value!=='string'||value.trim().length<min||value.length>max)throw new BadRequestException(`Проверьте поле ${key}.`);return value.trim();}
 function uuid(value:string) {if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value))throw new BadRequestException('Некорректный идентификатор.');return value;}
 function presentRequest<T extends {isTestOrder:boolean}>(row:T){return {...row,isTestOrder:undefined};}
-async function telegram(method:string,body:unknown){
- try{const r=await fetch('https://api.telegram.org/bot'+BOT_TOKEN+'/'+method,{method:'POST',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const result=await r.json() as {ok:boolean};if(!r.ok||!result.ok)throw Error();}
+const telegramClient=new TelegramClient(BOT_TOKEN,fileURLToPath(new URL('../../frontend/public/assets/bot/welcome.jpg',import.meta.url)));
+async function telegram(method:string,body:Record<string,unknown>){
+ try{return await telegramClient.call(method,body);}
  catch{throw new ServiceUnavailableException('Telegram временно недоступен. Повторите запрос.');}
 }
 @Controller('api')
@@ -132,17 +128,16 @@ class Api {
     const browser=msg.text.match(/^\/start(?:@[a-zA-Z0-9_]+)?\s+login_([0-9a-f-]{36})$/);
     if(browser){
       const bound=await db.$transaction(tx=>bindBrowserLogin((sql,params=[])=>tx.$queryRawUnsafe(sql,...params),browser[1],String(msg.from.id)));
-      const copy=botWords[botLanguage(msg.from.language_code)];
-      await telegram('sendMessage',{chat_id:msg.chat.id,text:bound?`${copy.login} ${process.env.PUBLIC_URL}.\n${copy.code} ${loginCode(browser[1])}.\n${copy.check}`:copy.expired,...(bound?{reply_markup:{inline_keyboard:[[{text:copy.confirm,callback_data:`bl:y:${browser[1]}`},{text:copy.deny,callback_data:`bl:n:${browser[1]}`}]]}}:{})});
+      const language=botLanguage(msg.from.language_code),copy=botWords[language];
+      await telegram('sendMessage',{chat_id:msg.chat.id,parse_mode:'HTML',link_preview_options:{is_disabled:true},text:browserLoginText(language,process.env.PUBLIC_URL||'',loginCode(browser[1]),bound),...(bound?{reply_markup:{inline_keyboard:[[{text:copy.confirm,callback_data:`bl:y:${browser[1]}`},{text:copy.deny,callback_data:`bl:n:${browser[1]}`}]]}}:{})});
       await db.botUpdate.upsert({where:{id:uid},create:{id:uid},update:{}});return {ok:true};
     }
-    const command=msg.text.split(/[\s@]/)[0];if(!['/start','/support','/terms','/paysupport'].includes(command))return {ok:true};
-    const userId=String(msg.from.id),ref=msg.text.match(/^\/start\s+r_([1-9][0-9]{0,15})$/)?.[1];
+    const command=botCommand(msg.text);if(!command)return {ok:true};
+    const userId=String(msg.from.id),ref=msg.text.match(/^\/start(?:@[a-zA-Z0-9_]+)?\s+r_([1-9][0-9]{0,15})$/)?.[1];
     if(ref&&ref!==userId&&!await db.user.findUnique({where:{id:userId}})&&await db.user.findUnique({where:{id:ref}}))await db.invite.upsert({where:{telegramId:userId},create:{telegramId:userId,referrerId:ref},update:{}});
     const saved=await db.user.findUnique({where:{id:userId},select:{preferredLanguage:true}});
-    const copy=botWords[botLanguage(saved?.preferredLanguage||msg.from.language_code)];
-    const text=command==='/start'?copy.start:command==='/terms'?copy.terms:copy.support;
-    try{const r=await fetch('https://api.telegram.org/bot'+BOT_TOKEN+'/sendMessage',{method:'POST',signal:AbortSignal.timeout(10000),headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:msg.chat.id,text,reply_markup:{inline_keyboard:[[{text:copy.open,web_app:{url:process.env.PUBLIC_URL+'/'}}]]}})});const result=await r.json() as {ok?:boolean};if(!result.ok)throw Error();}catch{throw new ServiceUnavailableException('Bot delivery unavailable');}
+    const reply=botReply(command,botLanguage(saved?.preferredLanguage||msg.from.language_code),msg.chat.id,process.env.PUBLIC_URL||'',msg.from.first_name);
+    await telegram(reply.method,reply.body);
     await db.botUpdate.upsert({where:{id:uid},create:{id:uid},update:{}});return {ok:true};
   }
   @Get('health') async health(){await db.$queryRaw`SELECT 1`;return {status:'ok',app:'aethermind',commit:process.env.APP_COMMIT||'local'};}

@@ -43,7 +43,7 @@ available=$(df -Pk /srv | awk 'NR==2 {print $4}')
 ((available>1800000)) || fail 'Нужно минимум 1.8 ГБ свободного места.'
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 release="/srv/releases/gpunode/$stamp-$sha"
-backup="/srv/backups/gpunode/offer-partners-107-$stamp"
+backup="/srv/backups/gpunode/bot-presentation-109-$stamp"
 install -d -m 0700 "$backup"
 printf '%s\n' "$previous" > "$backup/previous-release.txt"
 printf '%s\n' "$sha" > "$backup/requested-commit.txt"
@@ -187,8 +187,8 @@ PY_PRIVATE_ARCHIVE
 grep -Fq "OFFER_VERSION='88-2026-AI-NETWORK-2026-10-10-R2'" "$release/backend/src/offer.ts" || fail 'Неверная версия.'
 [[ -f $release/frontend/src/ProductTour.tsx && -f $release/frontend/src/OwnerCredit.tsx && -f $release/backend/src/admin-credit.ts && -f $release/ops/admin-credit-integration.mjs && -f $release/backend/prisma/migrations/20261008000100_admin_balance_credit/migration.sql ]] || fail 'В архиве нет нового пополнения владельцем.'
 grep -Fq 'aethermind-tour-v2' "$release/frontend/src/ProductTour.tsx" || fail 'В архиве старая демонстрация.'
-[[ -f $release/ops/public-runtime.py && -f $release/ops/public-runtime-check.mjs && -f $release/ops/public-runtime-flags.json ]] || fail 'В архиве нет исправления настроек служб. Выполните скрипт 106.'
-if [[ ! -f $release/ops/epoch-integration.mjs ]] || ! grep -Fq 'let last:string|undefined' "$release/backend/src/epoch-settle.ts"; then fail 'В архиве старый Epoch worker. Выполните скрипт 106.'; fi
+[[ -f $release/ops/public-runtime.py && -f $release/ops/public-runtime-check.mjs && -f $release/ops/public-runtime-flags.json ]] || fail 'В архиве нет исправления настроек служб. Выполните скрипт 108.'
+if [[ ! -f $release/ops/epoch-integration.mjs ]] || ! grep -Fq 'let last:string|undefined' "$release/backend/src/epoch-settle.ts"; then fail 'В архиве старый Epoch worker. Выполните скрипт 108.'; fi
 [[ -f $release/frontend/src/design-tokens.css && -f $release/frontend/src/UI.tsx && -f $release/frontend/src/ui.css && -f $release/frontend/src/viewport.ts && -f $release/frontend/src/redesign-translations.ts ]] || fail 'В архиве нет полного редизайна.'
 grep -Fq -- '--color-primary: #26e6ff;' "$release/frontend/src/design-tokens.css" || fail 'В архиве нет общей палитры.'
 grep -Fq 'className="app-nav"' "$release/frontend/src/App.tsx" || fail 'В архиве нет новой навигации.'
@@ -201,6 +201,8 @@ flags=json.load(open(sys.argv[1]))
 assert flags.get('ENABLE_COMPOUND')=='true','Canonical Compound flag is missing'
 assert flags.get('FINANCIAL_PUBLIC_ACCESS')=='true','Public access is missing'
 PY_GPU_COMPOUND_FLAGS
+[[ -f $release/backend/src/bot-presentation.ts && -f $release/backend/src/telegram.ts && -f $release/ops/bot-config-test.py && -f $release/ops/bot-integration.mjs && -f $release/ops/bot-ci-transport.mjs ]] || fail 'В архиве нет полного обновления бота. Выполните скрипт 108.'
+printf '%s  %s\n' 'fb0629877727117170f95ce25c4ea32eae7c2cfd249cd6f2c1eecd496ef2c9b6' "$release/frontend/public/assets/bot/welcome.jpg" | sha256sum -c --status || fail 'Приветственный баннер не совпал.'
 phase 'установка зависимостей, тесты и сборка' 
 # shellcheck disable=SC2016
 runuser -u deploy -- env PATH="$PATH" NODE_OPTIONS=--max-old-space-size=384 bash -c '
@@ -210,6 +212,7 @@ runuser -u deploy -- env PATH="$PATH" NODE_OPTIONS=--max-old-space-size=384 bash
   npm run db:generate
   npm test
   python3 ops/network-deploy-test.py
+  python3 ops/bot-config-test.py
   npm run build
 ' _ "$release"
 printf '%s  %s\n' 'bfee177869e0c6d13c189df6eff3f772bb7a89509b9512711c3eb7ffdac52a0b' "$release/frontend/dist/documents/public-offer-aethermind-network-2026-10-10-r2.pdf" | sha256sum -c --status || fail 'PDF сборки не совпал.'
@@ -403,6 +406,10 @@ for variant in 320 640; do
   expected_asset=$(sha256sum "$release/frontend/dist/$path"); expected_asset=${expected_asset%% *}
   printf '%s  %s\n' "$expected_asset" "$backup/partner-asset.webp" | sha256sum -c --status || fail "Не совпала иллюстрация $path."
 done
+path='assets/bot/welcome.jpg'
+curl -fsS --max-time 15 --resolve 31.77.226.26:443:127.0.0.1 "https://31.77.226.26/$path" -o "$backup/welcome.jpg" || fail 'Nginx не отдал приветственный баннер.'
+printf '%s  %s\n' 'fb0629877727117170f95ce25c4ea32eae7c2cfd249cd6f2c1eecd496ef2c9b6' "$backup/welcome.jpg" | sha256sum -c --status || fail 'Публичный приветственный баннер не совпал.'
+runuser -u deploy -- test -r "$release/frontend/public/assets/bot/welcome.jpg" || fail 'Бот не может прочитать приветственный баннер.'
 [[ $(systemctl show gpunode-epoch-settle.service -p Result --value) == success && $(systemctl show gpunode-epoch-settle.service -p ExecMainStatus --value) == 0 ]] || fail 'Epoch завершился с ошибкой.'
 
 
@@ -435,5 +442,16 @@ phase 'включение проверенного Epoch timer'
 systemctl enable --now gpunode-epoch-settle.timer
 systemctl is-active --quiet gpunode-epoch-settle.timer || fail 'Таймер Epoch не работает.'
 trap - ERR INT TERM HUP
+# External Telegram settings run after all release checks. A Bot API outage must
+# not roll back a healthy application or financial workers. Retry only bot-config.
+phase 'настройка и проверка оформления Telegram-бота'
+bot_config_ok=1
+python3 "$release/ops/bot-config.py" || bot_config_ok=0
 printf 'ГОТОВО: коммит %s\nБэкап: %s\nНесколько GPU, общий TON-кошелёк, фон, уведомления, поддержка и AI Ambassador Network обновлены; Compound: public ON; пополнение владельцем: ON\nМиграция добавочная; новые финансовые записи сохраняются при откате\nНастройки API, TON watcher, Epoch и Ambassador проверены; история ожидает точного утверждения владельцем; пять денежных трактовок доступны в панели\nОферта: USDT TON; пополнение: public\nЗаказы: public, активация владельцем и Epoch timer включены\n' "$sha" "$backup"
+if ((bot_config_ok)); then
+  printf 'Бот: приветственный баннер, структурированные ответы и команды RU/EN/RO готовы.\n'
+else
+  printf 'Приложение обновлено и работает. Настройка Telegram не завершена; повторите только: sudo python3 /srv/apps/gpunode/current/ops/bot-config.py\n' >&2
+  exit 1
+fi
 # AETHERMIND_NETWORK_REMOTE_COMPLETE

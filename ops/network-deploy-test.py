@@ -21,6 +21,13 @@ def run(name, *args):
 
 
 class DeployFixtures(unittest.TestCase):
+    def test_remote_deployer_has_valid_syntax_and_completion_marker(self):
+        path = OPS / 'network-deploy-remote.sh'
+        result = subprocess.run(['bash', '-n', str(path)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, '')
+        self.assertEqual(path.read_text().splitlines()[-1], '# AETHERMIND_NETWORK_REMOTE_COMPLETE')
+
     def catalog_fixture(self, root, limits=(1, 1, 1)):
         rows = []
         for (ident, values), limit in zip(catalog_check.EXPECTED.items(), limits):
