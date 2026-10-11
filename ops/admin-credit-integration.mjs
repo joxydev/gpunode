@@ -50,8 +50,43 @@ try{
  await call('/v1/financial-offer/accept',token('910005'),{version:offer.version,documentSha256:offer.sha256,readConfirmed:true});
  await db.gpuCatalog.update({where:{id:'NODE_4090'},data:{supplyKnown:true,totalSupply:20,availableSupply:20}});await call(creditPath('910005'),owner,payload('49'));
  // This CI user is an explicit canary; do not modify the public runtime helper flags.
- const order={nodeId:'NODE_4090',compoundEnabled:false,idempotencyKey:randomUUID()};const simultaneous=await Promise.all([call(creditPath('910005'),owner,payload('2')),call('/v1/market/buy',token('910005'),order)]);assert.ok(simultaneous.every(r=>r.status===201));assert.equal(await amount('910005'),2000000n);assert.equal((await call('/v1/market/buy',token('910005'),order)).data.id,simultaneous[1].data.id);assert.equal(await amount('910005'),2000000n);
- console.log('ADMIN CREDIT CI PASSED: auth, exact amounts, self credit, parallel retries, cross-recipient conflict, rollback, overflow, notification/activity isolation, withdrawal and purchase.');
+ const order={nodeId:'NODE_4090',compoundEnabled:false,idempotencyKey:randomUUID()};const simultaneous=await Promise.all([call(creditPath('910005'),owner,payload('2')),call('/v1/market/buy',token('910005'),order)]);assert.ok(simultaneous.every(r=>r.status===201),JSON.stringify(simultaneous));assert.equal(await amount('910005'),2000000n);assert.equal((await call('/v1/market/buy',token('910005'),order)).data.id,simultaneous[1].data.id);assert.equal(await amount('910005'),2000000n);
+ // Regression: a credited recipient buys a GPU, then the owner reopens the
+ // account to issue another independent credit. Raw Prisma BigInts used to
+ // make this profile response fail during Fastify JSON serialization.
+ const purchasedId=simultaneous[1].data.id;
+ const profileBefore=await call('/admin/users/910005',owner);
+ assert.equal(profileBefore.status,200,'owner can reopen a credited recipient with a GPU order');
+ const orderedLease=profileBefore.data.leases.find(row=>row.id===purchasedId);
+ assert.ok(orderedLease);assert.equal(orderedLease.principal,'50.000000');assert.equal(orderedLease.status,'PROVISIONING');assert.equal(orderedLease.expiresAt,null);
+ assert.equal(orderedLease.principalMicros,undefined);assert.equal(orderedLease.baseAccrued,'0.000000');
+ const repeatedCredit=payload('1.234567','CI repeat after opening recipient profile');
+ const creditedAgain=await call(creditPath('910005'),owner,repeatedCredit);assert.equal(creditedAgain.status,201);
+ const replayedCredit=await call(creditPath('910005'),owner,repeatedCredit);assert.equal(replayedCredit.data.id,creditedAgain.data.id);
+ const profileAfter=await call('/admin/users/910005',owner);assert.equal(profileAfter.status,200);
+ assert.equal(profileAfter.data.statistics.balance,'3.234567');assert.equal(await amount('910005'),3234567n);
+ assert.equal(profileAfter.data.leases.length,profileBefore.data.leases.length);
+ const historyAgain=await call(creditPath('910005'),owner);assert.equal(historyAgain.status,200);
+ assert.equal(historyAgain.data.items.filter(row=>row.id===creditedAgain.data.id).length,1);
+ assert.equal((await call('/v1/admin/leases/'+purchasedId+'/activate',owner,{})).status,201);
+ const beforeProfileRead=await db.userLease.findUniqueOrThrow({where:{id:purchasedId}});
+ const beforeReadEntries=await db.ledgerEntry.count({where:{userId:'910005'}});
+ const activeProfile=await call('/admin/users/910005',owner);assert.equal(activeProfile.status,200);
+ const activeLease=activeProfile.data.leases.find(row=>row.id===purchasedId);assert.equal(activeLease.status,'ACTIVE');assert.ok(activeLease.expiresAt);
+ assert.deepEqual(await db.userLease.findUniqueOrThrow({where:{id:purchasedId}}),beforeProfileRead,'opening the owner profile must not settle or alter a lease');
+ assert.equal(await db.ledgerEntry.count({where:{userId:'910005'}}),beforeReadEntries);
+ // Existing historical rows contain BigInt defaults even when their principal
+ // is null. Returning exact strings must also preserve integers beyond 2^53.
+ const legacy=await db.userLease.create({data:{userId:'910001',nodeId:'NODE_H100',purchasePrice:'1200',dailyYieldUsdt:'0',contractReference:'CI_LEGACY_PROFILE_ONLY',idempotencyKey:randomUUID(),status:'EXPIRED',createdAt:new Date('2024-10-01T00:00:00Z'),expiresAt:new Date('2025-01-01T00:00:00Z')}});
+ const legacyProfile=await call('/admin/users/910001',owner);assert.equal(legacyProfile.status,200);
+ assert.equal(legacyProfile.data.leases.find(row=>row.id===legacy.id).principal,null);
+ assert.equal(legacyProfile.data.leases.find(row=>row.id===legacy.id).legacyTermsReview,true);
+ await db.userLease.update({where:{id:legacy.id},data:{principalMicros:9007199254740993n}});
+ const preciseProfile=await call('/admin/users/910001',owner);assert.equal(preciseProfile.status,200);
+ assert.equal(preciseProfile.data.leases.find(row=>row.id===legacy.id).principal,'9007199254.740993');
+ assert.equal((await call('/admin/users/910005',token('910001'))).status,403);
+ assert.equal((await call('/admin/users/910005',null)).status,401);
+ console.log('ADMIN CREDIT CI PASSED: auth, exact amounts, self credit, parallel retries, cross-recipient conflict, rollback, overflow, notification/activity isolation, withdrawal, purchase, owner profile reopen/repeat credit and exact legacy lease JSON.');
 }finally{
  if(child.exitCode===null&&child.signalCode===null)child.kill('SIGTERM');const timer=setTimeout(()=>{if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL')},5000);try{await stopped}finally{clearTimeout(timer);await db.$disconnect()}
 }

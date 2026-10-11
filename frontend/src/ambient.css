@@ -1,6 +1,9 @@
-/* Only the matching breakpoint fetches a resource. Finite image fades into the page. */
-body{background-color:var(--color-bg);background-repeat:no-repeat;background-position:center top;background-attachment:scroll;background-size:100% 1000px}
-@media(max-width:1023px){body{background-image:linear-gradient(to bottom,#090d180a 0,#090d1833 430px,var(--color-bg) 960px),url('/assets/ambient-mobile.webp')}}
-@media(min-width:1024px){body{background-size:100% 1150px;background-image:linear-gradient(to bottom,#090d1812 0,#090d1844 680px,var(--color-bg) 1100px),url('/assets/ambient-desktop.webp')}}
+/* A still viewport layer covers long pages without scroll handlers or a tall bitmap.
+   Only the matching breakpoint fetches its artwork. Body isolation keeps the
+   negative decorative layer above the body fill and behind every app surface. */
+body{position:relative;isolation:isolate;min-height:100dvh;background-color:var(--color-bg)}
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background-position:center;background-repeat:no-repeat;background-size:cover}
+@media(max-width:1023px){body::before{background-image:linear-gradient(to bottom,#090d1820,#090d1840 55%,#090d1875),url('/assets/ambient-mobile.webp')}}
+@media(min-width:1024px){body::before{background-image:linear-gradient(to bottom,#090d1828,#090d1850 65%,#090d1880),url('/assets/ambient-desktop.webp')}}
 @media(max-width:1023px){.panel,.app-nav,.modal-backdrop,.market-dialog,.owner-drawer-backdrop{backdrop-filter:none}}
 .asset-detail-grid{grid-template-columns:minmax(0,1fr)}

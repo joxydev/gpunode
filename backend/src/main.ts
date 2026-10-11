@@ -372,7 +372,9 @@ class Api {
       db.ticket.count({where:{userId:id,status:{in:OPEN_TICKET_STATUSES}}})
     ]);
     const nodes=await this.equipmentNames(requests.map(request=>request.nodeId));
-    return {user:{id:user.id,name:user.name,username:user.username,createdAt:user.createdAt,referrerId:user.referrerId},statistics:{invitedCount,deposited:microsToDecimal(deposits._sum.amountMicros||0n),balance:microsToDecimal(balance._sum.amountMicros||0n),tickets:ticketTotal,openTickets:ticketOpen},documents:{agreementAcceptedAt:user.agreementAcceptedAt,offerAcceptedAt:user.offerAcceptances[0]?.acceptedAt||null},selectedTariff:user.selectedTariff,invited,referrals:{page:referralPage,total:invitedCount,hasMore:(referralPage+1)*100<invitedCount},requests:requests.map(request=>(Object.assign({},presentRequest(request),{equipment:{id:request.nodeId,name:nodes.get(request.nodeId)||request.nodeId}}))),leases};
+    // Prisma leases contain BigInt money fields. Use the same exact, read-only
+    // JSON presentation as the public account and administrative lease APIs.
+    return {user:{id:user.id,name:user.name,username:user.username,createdAt:user.createdAt,referrerId:user.referrerId},statistics:{invitedCount,deposited:microsToDecimal(deposits._sum.amountMicros||0n),balance:microsToDecimal(balance._sum.amountMicros||0n),tickets:ticketTotal,openTickets:ticketOpen},documents:{agreementAcceptedAt:user.agreementAcceptedAt,offerAcceptedAt:user.offerAcceptances[0]?.acceptedAt||null},selectedTariff:user.selectedTariff,invited,referrals:{page:referralPage,total:invitedCount,hasMore:(referralPage+1)*100<invitedCount},requests:requests.map(request=>(Object.assign({},presentRequest(request),{equipment:{id:request.nodeId,name:nodes.get(request.nodeId)||request.nodeId}}))),leases:leases.map(row=>presentLease(row))};
   }
   @Get('admin/requests') async requests(@Headers('authorization') auth:string,@QueryParam('page') page?:string,@QueryParam('status') status?:string,@QueryParam('payment') payment?:string){
     await owner(auth);const pageNumber=this.pageNumber(page),skip=pageNumber*30;
