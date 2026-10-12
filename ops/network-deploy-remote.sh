@@ -43,7 +43,7 @@ available=$(df -Pk /srv | awk 'NR==2 {print $4}')
 ((available>1800000)) || fail 'Нужно минимум 1.8 ГБ свободного места.'
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 release="/srv/releases/gpunode/$stamp-$sha"
-backup="/srv/backups/gpunode/welcome-tariff-116-$stamp"
+backup="/srv/backups/gpunode/wallet-copy-118-$stamp"
 install -d -m 0700 "$backup"
 printf '%s\n' "$previous" > "$backup/previous-release.txt"
 printf '%s\n' "$sha" > "$backup/requested-commit.txt"
