@@ -18,7 +18,10 @@ const categories=[['ALL','Все'],['CONSUMER','Alpha'],['ENTERPRISE','Beta / PO
 const money=(value:string|null,locale:string,decimals=0)=>value===null?'—':exactMoney(value,locale);
 const micros=(value:string)=>{const [whole,fraction='']=value.split('.');return BigInt(whole)*1000000n+BigInt(fraction.padEnd(6,'0').slice(0,6))};
 
-function Art({node,detail=false}:{node:Node;detail?:boolean}){const {t}=useLanguage();const prefix=detail?'detail':'card',sizes=detail?[360,720,1080]:[160,320,480];return <ProtectedArt className="market-art" src={`${node.image}/${prefix}-${sizes[1]}.webp`} srcSet={sizes.map(s=>`${node.image}/${prefix}-${s}.webp ${s}w`).join(', ')} sizes={detail?'(max-width:600px) 70vw,220px':'(max-width:767px) 64px,72px'} width={sizes[1]} height={sizes[1]} loading={detail?'eager':'lazy'} draggable={false} lit={!node.experimental&&node.availability==='AVAILABLE'} alt={`${t("Визуализация категории")} ${node.name}`}/>}
+function Art({node,detail=false}:{node:Node;detail?:boolean}){
+ const {t}=useLanguage(),prefix=detail?'detail':'card',variants=detail?[720,1080]:[160,320,480];
+ return <ProtectedArt className="market-art" src={`${node.image}/${prefix}-${detail?720:320}.webp`} srcSet={variants.map(size=>`${node.image}/${prefix}-${size}.webp ${size}w`).join(', ')} sizes={detail?'(max-width:767px) calc(100vw - 32px),630px':'(max-width:767px) 64px,72px'} width={detail?720:320} height={detail?720:320} loading={detail?'eager':'lazy'} draggable={false} lit={!node.experimental&&node.availability==='AVAILABLE'} alt={`${t("Визуализация категории")} ${node.name}`}/>;
+}
 
 export default function Market({authenticated,account,selectedId,onLogin,onSelected,onNotice,onError,focusNodeId,reviewRequest,onPurchased}:{authenticated:boolean;account:Account|null;selectedId?:string|null;onLogin:()=>void;onSelected:()=>Promise<void>;onNotice:(s:string)=>void;onError:(s:string)=>void;focusNodeId?:string|null;reviewRequest?:number;onPurchased:()=>void}){
  const {t,language}=useLanguage();const locale=intlLocale(language);
@@ -35,7 +38,7 @@ export default function Market({authenticated,account,selectedId,onLogin,onSelec
  const reload=useCallback(async()=>{const current=++generation.current;setLoading(true);setError('');try{const data=await api<{nodes:Node[]}>(`/v1/market?category=${category}&sort=${sort}`);if(current===generation.current){setNodes(data.nodes);setSelected(old=>old?data.nodes.find(n=>n.id===old.id)||null:null)}}catch(e){if(current===generation.current)setError((e as Error).message)}finally{if(current===generation.current)setLoading(false)}},[category,sort]);
  useEffect(()=>{if(pendingOrder.current&&nodes.length&&!selected){const node=nodes.find(n=>n.id===pendingOrder.current?.nodeId);if(node){setSelected(node);setReview(true)}}},[nodes]);
  useEffect(()=>{void reload();return()=>{++generation.current}},[reload]);
- useEffect(()=>{const el=dialog.current;if(selected&&el&&!el.open)el.showModal();if(!selected&&el?.open)el.close()},[selected]);
+ useLayoutEffect(()=>{const el=dialog.current;if(selected&&el&&!el.open){el.showModal();el.scrollTop=0}if(!selected&&el?.open)el.close()},[selected]);
  function open(node:Node){try{const value=JSON.parse(sessionStorage.getItem(storageKey)||'{}');const draft=value.nodeId?(value.nodeId===node.id?value:null):value[node.id];pendingOrder.current=draft||null;purchaseKey.current=draft?.idempotencyKey||crypto.randomUUID();setCompound(draft?.compoundEnabled||false);setAmbiguous(Boolean(draft))}catch{pendingOrder.current=null;}opener.current=document.activeElement as HTMLElement;haptic();setReview(false);if(!pendingOrder.current){setCompound(false);purchaseKey.current=crypto.randomUUID();}setSelected(node)}
  useEffect(()=>{if(!reviewRequest||handledIntent.current===reviewRequest||!nodes.length)return;const node=nodes.find(row=>row.id===focusNodeId);if(node){handledIntent.current=reviewRequest;open(node);setReview(true)}},[reviewRequest,focusNodeId,nodes]);
  function finishClose(){setSelected(null);setReview(false);dialog.current?.close();opener.current?.focus()}

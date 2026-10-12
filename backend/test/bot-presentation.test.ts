@@ -17,9 +17,22 @@ test('all command replies fit Telegram limits and keep the same Mini App destina
   if(command==='/start'){assert.equal(reply.method,'sendPhoto');assert.equal(reply.body.photo,WELCOME_PHOTO);assert.match(text!,/&lt;Name &amp; &quot;user&quot;&gt;/);assert.doesNotMatch(text!,/<Name/);}
   else assert.equal(reply.method,'sendMessage');
  }
- const name='😀'.repeat(1000);assert.ok(plain(botReply('/start','ru',123,'https://example.invalid',name).body.caption!).length<1024);
+ const name='😀'.repeat(1000);for(const language of ['ru','en','ro'] as const)assert.ok(plain(botReply('/start',language,123,'https://example.invalid',name).body.caption!).length<1024);
  assert.equal(botCommand('/start@aethermind_bot r_123'),'/start');assert.equal(botCommand('/paysupport'),'/paysupport');assert.equal(botCommand('/unknown'),null);
  assert.equal(botLanguage('RO-md'),'ro');assert.equal(botLanguage('en-US'),'en');assert.equal(botLanguage('fr'),'ru');
+});
+
+test('welcome keeps the name inline without interpreting replacement tokens or a dangling comma',()=>{
+ const name="$&$`$' <User>";
+ const caption=botReply('/start','ru',123,'https://example.invalid',name).body.caption!;
+ assert.ok(plain(caption).startsWith('👋 Приветствуем, '+name+'!'));
+ assert.equal((caption.match(/Ambassador Network/g)||[]).length,1);
+ assert.doesNotMatch(caption,/\{name\}/);
+ for(const language of ['ru','en','ro'] as const){
+  const withoutName=botReply('/start',language,123,'https://example.invalid').body.caption!;
+  assert.equal(botReply('/start',language,123,'https://example.invalid','   ').body.caption,withoutName);
+  assert.doesNotMatch(withoutName,/, !|\{name\}/);
+ }
 });
 
 test('browser confirmation keeps its code and safety instructions without HTML injection or link previews',()=>{
